@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>VOEXI 3D Avatar Web Stage</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #05050A; font-family: -apple-system, sans-serif; }
+    #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; pointer-events: auto; }
+
+    #loading-container {
+      position: absolute;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 80%;
+      max-width: 320px;
+      background: rgba(10, 10, 15, 0.85);
+      border: 1px solid rgba(168, 85, 247, 0.4);
+      padding: 12px 16px;
+      border-radius: 12px;
+      backdrop-filter: blur(10px);
+      z-index: 10;
+      transition: opacity 0.5s ease;
+      pointer-events: none;
+      display: none;
+    }
+    #loading-status {
+      color: #00F2FE;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      text-align: center;
+    }
+    .progress-bar-bg {
+      width: 100%;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    #progress-fill {
+      width: 0%;
+      height: 100%;
+      background: linear-gradient(90deg, #A855F7, #00F2FE);
+      border-radius: 2px;
+      transition: width 0.2s ease;
+    }
+
+    #error-container {
+      display: none;
+      position: absolute;
+      top: 50px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 90%;
+      max-width: 360px;
+      background: rgba(239, 68, 68, 0.95);
+      color: #fff;
+      padding: 14px 18px;
+      border-radius: 12px;
+      font-size: 11px;
+      z-index: 10000;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    }
+    #error-details { font-family: monospace; white-space: pre-wrap; word-break: break-all; margin-top: 4px; }
+
+    /* FLOATING BOTTOM-RIGHT 3D ITEM HUD CARD (HIDDEN IN FULL VIEW) */
+    #hud-detail-card {
+      display: none; /* HIDDEN IN FULL VIEW MODE BY DEFAULT */
+      position: absolute;
+      bottom: 12px;
+      right: 12px;
+      width: 180px;
+      background: rgba(8, 8, 18, 0.92);
+      border: 1px solid rgba(0, 242, 254, 0.5);
+      border-radius: 14px;
+      padding: 10px 12px;
+      z-index: 1000;
+      box-shadow: 0 0 20px rgba(0, 242, 254, 0.25);
+    }
+    .hud-row-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .gender-pill-female { background: rgba(236,72,153,0.25); color: #EC4899; border: 1px solid #EC4899; padding: 2px 6px; border-radius: 6px; font-size: 8px; font-weight: 900; }
+    .gender-pill-male { background: rgba(0,242,254,0.25); color: #00F2FE; border: 1px solid #00F2FE; padding: 2px 6px; border-radius: 6px; font-size: 8px; font-weight: 900; }
+    .discount-pill { background: #FF0055; color: #FFF; padding: 2px 6px; border-radius: 5px; font-size: 8px; font-weight: 900; }
+    .hud-item-name { color: #00F2FE; font-size: 11px; font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .hud-desc-text { color: #AAA; font-size: 8.5px; font-weight: 700; margin-top: 3px; margin-bottom: 6px; line-height: 1.2; }
+    .hud-price-row { display: flex; align-items: center; gap: 6px; }
+    .price-main { color: #00F2FE; font-size: 12px; font-weight: 900; }
+    .price-orig { color: #777; font-size: 9px; text-decoration: line-through; }
+  </style>
+
+  <!-- Local Bundled Official Three.js WebGL Engine & fflate Decompressor -->
+  <script src="/avatar/lib/three.min.js"></script>
+  <script src="/avatar/lib/OrbitControls.js"></script>
+  <script src="/avatar/lib/GLTFLoader.js"></script>
+  <script src="/avatar/lib/fflate.min.js"></script>
+  <script src="/avatar/lib/FBXLoader.js"></script>
+</head>
+<body>
+  <div id="canvas-container"></div>
+
+  <div id="loading-container">
+    <div id="loading-status">INITIALIZING 3D ENGINE...</div>
+    <div class="progress-bar-bg">
+      <div id="progress-fill"></div>
+    </div>
+  </div>
+
+  <!-- TOP RIGHT FULL VIEW & LANDSCAPE ROTATION TOGGLE BUTTONS -->
+  <div style="position:absolute; top:12px; right:12px; z-index:2000; display:flex; gap:8px;">
+    <button id="fullscreen-btn" onclick="toggleLandscapeFullScreen()" style="background:rgba(8,8,18,0.85); color:#00F2FE; border:1px solid rgba(0,242,254,0.4); padding:6px 12px; border-radius:10px; font-size:10px; font-weight:800; cursor:pointer; display:flex; align-items:center; gap:4px;">
+      🎮 LANDSCAPE FULLSCREEN 🔄
+    </button>
+    <button id="hud-toggle-btn" onclick="toggleHudCard()" style="background:rgba(8,8,18,0.85); color:#00F2FE; border:1px solid rgba(0,242,254,0.4); padding:6px 12px; border-radius:10px; font-size:10px; font-weight:800; cursor:pointer;">
+      👁️ FULL VIEW
+    </button>
+  </div>
+
+  <!-- BOTTOM RIGHT HUD DETAIL CARD (HIDDEN IN FULL VIEW BY DEFAULT) -->
+  <div id="hud-detail-card">
+    <div class="hud-row-top">
+      <span id="hud-gender-tag" class="gender-pill-male">👨 MALE</span>
+      <span class="discount-pill">🔥 50% OFF</span>
+    </div>
+    <div id="hud-item-title" class="hud-item-name">3D Avatar Model</div>
+    <div class="hud-desc-text">3D Item Description:<br>Real 3D Asset from VOEXI 3D Server (Port 8085)</div>
+    <div class="hud-price-row">
+      <span id="hud-price-main" class="price-main">💎 590</span>
+      <span id="hud-price-orig" class="price-orig">💎 1180</span>
+    </div>
+  </div>
+
+  <script>
+    function toggleHudCard() {
+      const card = document.getElementById('hud-detail-card');
+      const btn = document.getElementById('hud-toggle-btn');
+      if (!card || !btn) return;
+      if (card.style.display === 'none' || !card.style.display) {
+        card.style.display = 'block';
+        btn.innerText = '✖ HIDE HUD INFO';
+      } else {
+        card.style.display = 'none';
+        btn.innerText = '👁️ FULL VIEW';
+      }
+    }
+
+    function toggleLandscapeFullScreen() {
+      const elem = document.documentElement;
+      if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+        if (elem.requestFullscreen) elem.requestFullscreen();
+        else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
+
+        // Lock screen orientation to Landscape (Free Fire / YouTube Style!)
+        if (window.screen && window.screen.orientation && window.screen.orientation.lock) {
+          window.screen.orientation.lock('landscape').catch(() => {});
+        }
+      } else {
+        if (document.exitFullscreen) document.exitFullscreen();
+        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+
+        if (window.screen && window.screen.orientation && window.screen.orientation.unlock) {
+          window.screen.orientation.unlock();
+        }
+      }
+    }
+  </script>
+
+  <div id="error-container">
+    <b>3D Engine Exception:</b>
+    <div id="error-details"></div>
+  </div>
+
+  <script src="/avatar/web/stage.js"></script>
+</body>
+</html>

@@ -1,0 +1,107 @@
+[
+  {
+    "id": "report-1791304381076",
+    "reporter_id": "usr-reporter",
+    "reported_user_id": "usr-accused",
+    "content_id": "app-media-0-VX_1789922592840_584.mp4",
+    "reason": "Malicious Transmission",
+    "risk_level": "medium",
+    "status": "resolved",
+    "created_at": "2026-10-06T16:33:01.077Z",
+    "reporter_profile": {
+      "username": "reporter_user",
+      "email": "reporter@voexi.com",
+      "avatar_url": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=300"
+    },
+    "reported_profile": {
+      "username": "accused_creator",
+      "channel_name": "VOEXI Channel",
+      "avatar_url": "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=300"
+    },
+    "uploader_email": "creator@gmail.com",
+    "evidence_photos": [
+      "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800"
+    ],
+    "evidence_message": "Malicious Transmission",
+    "resolved_at": "2026-10-07T02:57:22.258Z"
+  },
+  {
+    "id": "report-1791304280277",
+    "reporter_id": "usr-reporter",
+    "reported_user_id": "usr-accused",
+    "content_id": "pendrive_media_0_VX_1789922592840_584.mp4",
+    "reason": "Harmful Frequency",
+    "risk_level": "medium",
+    "status": "resolved",
+    "created_at": "2026-10-06T16:31:20.277Z",
+    "reporter_profile": {
+      "username": "reporter_user",
+      "email": "reporter@voexi.com",
+      "avatar_url": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=300"
+    },
+    "reported_profile": {
+      "username": "accused_creator",
+      "channel_name": "VOEXI Channel",
+      "avatar_url": "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=300"
+    },
+    "uploader_email": "creator@gmail.com",
+    "evidence_photos": [
+      "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800"
+    ],
+    "evidence_message": "Harmful Frequency",
+    "resolved_at": "2026-10-07T02:57:49.580Z"
+  },
+  {
+    "id": "report-101",
+    "reporter_id": "usr-1",
+    "reported_user_id": "usr-88",
+    "content_id": "VX_1789922592840_584.mp4",
+    "reason": "Restricted Signal: • थर्ड-पार्टी ऐप्स या टूल्स का इस्तेमाल • एमुलेटर या अनधिकृत प्लेटफॉर्म का उपयोग • अकाउंट शेयरिंग (दूसरों के साथ ID शेयर करना) • हैकर्स के साथ मिलकर रैंक पुश करना",
+    "risk_level": "HIGH",
+    "status": "resolved",
+    "created_at": "2026-10-06T12:00:00.000Z",
+    "reporter_profile": {
+      "username": "kayush12599",
+      "email": "kayush12599@gmail.com",
+      "avatar_url": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=300"
+    },
+    "reported_profile": {
+      "username": "vortex_creator",
+      "channel_name": "Vortex Cinema",
+      "avatar_url": "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=300"
+    },
+    "uploader_email": "vortex_creator@gmail.com",
+    "evidence_photos": [
+      "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800",
+      "https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&q=80&w=800"
+    ],
+    "evidence_message": "• थर्ड-पार्टी ऐप्स या टूल्स का इस्तेमाल • एमुलेटर या अनधिकृत प्लेटफॉर्म का उपयोग • अकाउंट शेयरिंग (दूसरों के साथ ID शेयर करना) • हैकर्स के साथ मिलकर रैंक पुश करना",
+    "resolved_at": "2026-10-07T02:57:51.220Z"
+  },
+  {
+    "id": "report-102",
+    "reporter_id": "usr-2",
+    "reported_user_id": "usr-99",
+    "content_id": "VX_1791221120535_498.mp4",
+    "reason": "Hate Resonance & Abusive Language: The video content and comment section contain harassment and toxic behavior violating community standards.",
+    "risk_level": "MEDIUM",
+    "status": "resolved",
+    "created_at": "2026-10-06T11:30:00.000Z",
+    "reporter_profile": {
+      "username": "vx_sentinel_guard",
+      "email": "sentinel@voexi.com",
+      "avatar_url": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=300"
+    },
+    "reported_profile": {
+      "username": "toxic_user_99",
+      "channel_name": "Toxic Gaming",
+      "avatar_url": "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&q=80&w=300"
+    },
+    "uploader_email": "toxic_user_99@gmail.com",
+    "evidence_photos": [
+      "https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&q=80&w=800"
+    ],
+    "evidence_message": "Reported signal flagged by user: Contains harassment and hate speech in video audio stream.",
+    "resolved_at": "2026-10-07T02:57:47.373Z"
+  }
+]

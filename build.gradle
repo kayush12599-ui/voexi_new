@@ -1,0 +1,70 @@
+// Top-level build file for the root project.
+println "User Home: " + System.getProperty("user.home")
+println "Gradle Home: " + gradle.gradleUserHomeDir
+buildscript {
+    ext {
+        kotlin_version = '2.0.21'
+        kotlinVersion = '2.0.21'
+        compileSdkVersion = 35
+        targetSdkVersion = 35
+        minSdkVersion = 24
+        buildToolsVersion = "35.0.0"
+        ndkVersion = "27.1.12297006"
+        reactNativeAndroidRoot = new File(rootDir, "node_modules/react-native")
+        Deepar_compileSdkVersion = 35
+        Deepar_targetSdkVersion = 35
+        Deepar_buildToolsVersion = "35.0.0"
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath('com.android.tools.build:gradle:8.7.2')
+        classpath("com.facebook.react:react-native-gradle-plugin:0.81.5")
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
+apply plugin: "com.facebook.react.rootproject"
+apply plugin: 'kotlin'
+
+allprojects {
+    tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+        kotlinOptions {
+            freeCompilerArgs += ["-Xuse-k2=false"]
+        }
+    }
+    repositories {
+        flatDir {
+            dirs "$rootDir/node_modules/react-native-deepar/android/libs"
+        }
+        google()
+        mavenCentral()
+        maven { url 'https://www.jitpack.io' }
+    }
+}
+repositories {
+    mavenCentral()
+}
+subprojects {
+    configurations.all {
+        resolutionStrategy.eachDependency { details ->
+            if (details.requested.group == 'org.jetbrains.kotlin') {
+                details.useVersion "2.0.21"
+            }
+            if (details.requested.group == 'org.jetbrains.kotlinx' && details.requested.name == 'kotlinx-datetime') {
+                details.useVersion "0.6.1"
+            }
+            if (details.requested.group == 'com.google.android.gms' && details.requested.name == 'play-services-ads') {
+                details.useVersion "25.4.0"
+            }
+        }
+    }
+}
+dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
+}
+kotlin {
+    jvmToolchain(17)
+}

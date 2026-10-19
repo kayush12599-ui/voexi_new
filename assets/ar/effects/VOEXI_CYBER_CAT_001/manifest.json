@@ -1,0 +1,29 @@
+{
+  "id": "VOEXI_CYBER_CAT_001",
+  "name": "Cyber Cat v2",
+  "category": "ACCESSORIES",
+  "version": "2.1",
+  "thumbnail": "https://voexi.com/assets/ar/thumbs/cyber_cat.png",
+  "type": "THREE_D_OBJECT",
+  "trackingType": "FACE_MESH",
+  "assets": [
+    {
+      "id": "ears_3d",
+      "type": "MODEL_GLB",
+      "uri": "local://models/cyber_ears.glb",
+      "anchor": "HEAD_TOP",
+      "scale": 1.5,
+      "animation": "PULSE"
+    },
+    {
+      "id": "neon_glow",
+      "type": "SHADER_FRAG",
+      "uri": "local://shaders/neon.frag",
+      "anchor": "FACE_CENTER"
+    }
+  ],
+  "settings": {
+    "musicBeatSync": true,
+    "performanceTierRequired": 3
+  }
+}

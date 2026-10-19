@@ -1,0 +1,99 @@
+{
+  "expo": {
+    "name": "VOEXI",
+    "slug": "voexi_new",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "voexi",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#000000"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "VOEXI needs access to your microphone for recording voice messages and AI speech recognition.",
+        "NSCameraUsageDescription": "VOEXI needs access to your camera to record videos and take photos for your productions.",
+        "NSPhotoLibraryUsageDescription": "VOEXI needs access to your photo library to let you upload videos and photos.",
+        "NSPhotoLibraryAddUsageDescription": "VOEXI needs permission to save remixed videos to your photo library.",
+        "NSSpeechRecognitionUsageDescription": "Allow VOEXI to use speech recognition for AI voice commands."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#000000",
+        "foregroundImage": "./assets/images/icon.png"
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ],
+      "package": "com.voexi.app",
+      "graphicsApi": "opengl"
+    },
+    "plugins": [
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-8557762635954495~3442111166",
+          "iosAppId": "ca-app-pub-8557762635954495~3442111166"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true,
+            "kotlinVersion": "2.0.21",
+            "targetSdkVersion": 36,
+            "compileSdkVersion": 36,
+            "extraMavenRepos": [
+              "https://www.jitpack.io",
+              "https://maven.google.com"
+            ]
+          }
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "The app accesses your photos to let you share them with your friends."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow VOEXI to access your camera",
+          "microphonePermission": "Allow VOEXI to access your microphone"
+        }
+      ],
+      "expo-router",
+      "expo-video",
+      "expo-speech-recognition",
+      "./plugins/withDeepAR",
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "VOEXI needs access to your camera for AI Filters and Background replacement.",
+          "enableMicrophonePermission": true
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "10ee8fef-dd05-492f-b9d5-c796a10fe3c6"
+      }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+[
+  {
+    "id": "asset_1791388638637",
+    "name": "brothers",
+    "category": "AVATAR",
+    "diamond_price": 2596,
+    "uri": "http://localhost:8085/avatar/models/brother.glb",
+    "image": "http://localhost:8085/avatar/models/thumb_1791388638664.jpeg",
+    "fileName": "brother.glb",
+    "created_at": "2026-10-07T15:57:18.637Z"
+  }
+]

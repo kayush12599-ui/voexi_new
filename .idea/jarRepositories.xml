@@ -1,0 +1,205 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="RemoteRepositoriesConfiguration">
+    <remote-repository>
+      <option name="id" value="central" />
+      <option name="name" value="Maven Central repository" />
+      <option name="url" value="https://repo1.maven.org/maven2" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="jboss.community" />
+      <option name="name" value="JBoss Community repository" />
+      <option name="url" value="https://repository.jboss.org/nexus/content/repositories/public/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="Google" />
+      <option name="name" value="Google" />
+      <option name="url" value="https://dl.google.com/dl/android/maven2/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenRepo" />
+      <option name="name" value="MavenRepo" />
+      <option name="url" value="https://repo.maven.apache.org/maven2/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="maven" />
+      <option name="name" value="maven" />
+      <option name="url" value="https://www.jitpack.io" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="maven2" />
+      <option name="name" value="maven2" />
+      <option name="url" value="https://central.sonatype.com/repository/maven-snapshots/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal" />
+      <option name="name" value="MavenLocal" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-application/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal2" />
+      <option name="name" value="MavenLocal2" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-asset/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal3" />
+      <option name="name" value="MavenLocal3" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-av/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal4" />
+      <option name="name" value="MavenLocal4" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-blur/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal5" />
+      <option name="name" value="MavenLocal5" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-camera/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal6" />
+      <option name="name" value="MavenLocal6" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-clipboard/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal7" />
+      <option name="name" value="MavenLocal7" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-device/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal8" />
+      <option name="name" value="MavenLocal8" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-document-picker/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal9" />
+      <option name="name" value="MavenLocal9" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-file-system/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal10" />
+      <option name="name" value="MavenLocal10" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-font/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal11" />
+      <option name="name" value="MavenLocal11" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-haptics/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal12" />
+      <option name="name" value="MavenLocal12" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-image/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal13" />
+      <option name="name" value="MavenLocal13" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-image-loader/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal14" />
+      <option name="name" value="MavenLocal14" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-image-picker/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal15" />
+      <option name="name" value="MavenLocal15" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-keep-awake/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal16" />
+      <option name="name" value="MavenLocal16" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-linear-gradient/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal17" />
+      <option name="name" value="MavenLocal17" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-linking/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal18" />
+      <option name="name" value="MavenLocal18" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-local-authentication/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal19" />
+      <option name="name" value="MavenLocal19" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-localization/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal20" />
+      <option name="name" value="MavenLocal20" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-media-library/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal21" />
+      <option name="name" value="MavenLocal21" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-notifications/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal22" />
+      <option name="name" value="MavenLocal22" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-sharing/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal23" />
+      <option name="name" value="MavenLocal23" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-speech/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal24" />
+      <option name="name" value="MavenLocal24" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-splash-screen/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal25" />
+      <option name="name" value="MavenLocal25" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-system-ui/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal26" />
+      <option name="name" value="MavenLocal26" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-video/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal27" />
+      <option name="name" value="MavenLocal27" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/expo-web-browser/local-maven-repo/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="maven4" />
+      <option name="name" value="maven4" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/react-native/android" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="MavenLocal28" />
+      <option name="name" value="MavenLocal28" />
+      <option name="url" value="file:/$USER_HOME$/.m2/repository" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="maven4" />
+      <option name="name" value="maven4" />
+      <option name="url" value="file:/$PROJECT_DIR$/../node_modules/react-native/android" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="maven5" />
+      <option name="name" value="maven5" />
+      <option name="url" value="file:/$PROJECT_DIR$/../node_modules/jsc-android/dist" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="react-native-google-mobile-ads -&gt; React Native sources" />
+      <option name="name" value="react-native-google-mobile-ads -&gt; React Native sources" />
+      <option name="url" value="file:/$PROJECT_DIR$/node_modules/react-native/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="maven4" />
+      <option name="name" value="maven4" />
+      <option name="url" value="https://jitpack.io" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="BintrayJCenter" />
+      <option name="name" value="BintrayJCenter" />
+      <option name="url" value="https://jcenter.bintray.com/" />
+    </remote-repository>
+  </component>
+</project>

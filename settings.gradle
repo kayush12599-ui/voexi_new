@@ -1,0 +1,37 @@
+pluginManagement {
+  includeBuild("node_modules/@react-native/gradle-plugin")
+  includeBuild("node_modules/expo-modules-autolinking/android/expo-gradle-plugin")
+
+  repositories {
+    google()
+    mavenCentral()
+    gradlePluginPortal()
+  }
+}
+
+plugins {
+  id("com.facebook.react.settings")
+  id("expo-autolinking-settings")
+  id 'org.gradle.toolchains.foojay-resolver-convention' version '0.10.0'
+}
+
+// Add top-level includeBuild for buildscript classpath resolution
+includeBuild("node_modules/@react-native/gradle-plugin")
+includeBuild("node_modules/expo-modules-autolinking/android/expo-gradle-plugin")
+
+extensions.configure(com.facebook.react.ReactSettingsExtension) { ex ->
+  // Use rootDir instead of default ../ as settings.gradle is already at root
+  // We use expoAutolinking.rnConfigCommand as it's already configured and platform-aware
+  ex.autolinkLibrariesFromCommand(expoAutolinking.rnConfigCommand, rootDir)
+}
+
+expoAutolinking.useExpoModules()
+expoAutolinking.useExpoVersionCatalog()
+
+rootProject.name = 'VOEXI'
+
+include ':app'
+project(':app').projectDir = new File(rootDir, 'android/app')
+
+include ':react-native-worklets-core'
+project(':react-native-worklets-core').projectDir = new File(rootDir, 'node_modules/react-native-worklets-core/android')

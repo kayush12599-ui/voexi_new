@@ -1,0 +1,72 @@
+[
+  {
+    "id": "hist_1792154780522_339",
+    "vx_admin_number": "VX_ADMIN_7216",
+    "admin_handle": "@admin_creator",
+    "filename": "3d_character_model.glb",
+    "asset_name": "3d character model",
+    "old_price": 59099,
+    "new_price": 59099,
+    "old_status": "APPROVED",
+    "new_status": "APPROVED",
+    "category": "AVATAR",
+    "discount_percent": "10% OFF",
+    "timestamp": "2026-10-16T12:46:20.522Z"
+  },
+  {
+    "id": "hist_1792153918638_822",
+    "vx_admin_number": "VX_ADMIN_8198",
+    "admin_handle": "@admin_creator",
+    "filename": "3d_character_model.glb",
+    "asset_name": "3d character model",
+    "old_price": 59099,
+    "new_price": 59099,
+    "old_status": "APPROVED",
+    "new_status": "APPROVED",
+    "category": "EMOTES",
+    "discount_percent": "10% OFF",
+    "timestamp": "2026-10-16T12:31:58.639Z"
+  },
+  {
+    "id": "hist_1791813333122_60",
+    "vx_admin_number": "VX_ADMIN_2327",
+    "admin_handle": "@admin_creator",
+    "filename": "3d_character_model.glb",
+    "asset_name": "3d character model",
+    "old_price": 59099,
+    "new_price": 59099,
+    "old_status": "APPROVED",
+    "new_status": "APPROVED",
+    "category": "EMOTES",
+    "discount_percent": "100% OFF",
+    "timestamp": "2026-10-12T13:55:33.122Z"
+  },
+  {
+    "id": "hist_1791455416752_586",
+    "vx_admin_number": "VX_ADMIN_7632",
+    "admin_handle": "@admin_creator",
+    "filename": "3d_character_model.glb",
+    "asset_name": "3d character model",
+    "old_price": 59099,
+    "new_price": 59099,
+    "old_status": "APPROVED",
+    "new_status": "APPROVED",
+    "category": "EMOTES",
+    "discount_percent": "100% OFF",
+    "timestamp": "2026-10-08T10:30:16.752Z"
+  },
+  {
+    "id": "hist_1791455406862_459",
+    "vx_admin_number": "VX_ADMIN_2856",
+    "admin_handle": "@admin_creator",
+    "filename": "3d_character_model.glb",
+    "asset_name": "3d character model",
+    "old_price": 59099,
+    "new_price": 59099,
+    "old_status": "APPROVED",
+    "new_status": "APPROVED",
+    "category": "EMOTES",
+    "discount_percent": "100% OFF",
+    "timestamp": "2026-10-08T10:30:06.864Z"
+  }
+]
