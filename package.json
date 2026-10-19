@@ -90,6 +90,7 @@
     "@babel/plugin-proposal-optional-chaining": "^7.21.0",
     "@babel/plugin-transform-template-literals": "^7.25.9",
     "@babel/preset-env": "^7.25.3",
+    "@expo/ngrok": "^4.1.0",
     "@react-native-community/cli": "^20.0.1",
     "@react-native-community/cli-platform-android": "^20.2.0",
     "@types/react": "~19.1.0",
