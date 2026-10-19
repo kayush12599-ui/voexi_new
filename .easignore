@@ -1,0 +1,15 @@
+# Ignore heavy media & local gradle cache, keep native android source code
+media_server_storage/
+.artifacts/
+.gradle/
+.expo/
+build/
+android/build/
+android/app/build/
+modules/**/build/
+modules/**/.transforms/
+node_modules/
+*.m4a
+*.mp4
+*.glb
+*.fbx
