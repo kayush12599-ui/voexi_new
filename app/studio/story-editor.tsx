@@ -287,7 +287,7 @@ export default function SignalStudio() {
     Animated.timing(timelineAnim, { toValue: 1, duration: 15000, useNativeDriver: false }).start();
   };
 
-  const player = useVideoPlayer(media || null);
+  const player = useVideoPlayer(media ? String(media) : '');
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -318,7 +318,17 @@ export default function SignalStudio() {
       let modStatus = 'approved';
       if (modResult.flagged) modStatus = 'flagged';
 
-      const url = await uploadToBunny(media, mediaType, (pct) => setUploadProgress(pct));
+      // Direct upload to Server 2 as 'STORY' category + Bunny CDN
+      const uploaderHandle = user.email || 'admin_creator';
+      const url = await uploadToBunny(
+        media,
+        mediaType === 'image' ? 'image' : 'story',
+        (pct) => setUploadProgress(pct),
+        title.trim() || 'VOEXI STORY',
+        uploaderHandle,
+        description.trim() || storyText || 'VOEXI Instant Story',
+        'STORY'
+      );
 
       const metadata = {
         text_x: (pan.x as any)._value / width,
@@ -346,20 +356,31 @@ export default function SignalStudio() {
       const expiresAt = new Date();
       expiresAt.setHours(expiresAt.getHours() + 24);
 
-      await supabase.from('posts').insert({
+      const newStoryRecord = {
         user_id: user.id,
         post_type: 'Story',
+        is_story: true,
         title: title.trim() || 'VOEXI STORY',
         media_url: url,
         media_type: mediaType,
         thumbnail_url: url,
         description: description.trim() || storyText,
-        category: category,
+        category: 'STORY',
         location: location,
         visibility: visibility || 'public',
         moderation_status: modStatus,
-        ai_moderation_score: modResult.score
-      });
+        ai_moderation_score: modResult.score,
+        created_at: new Date().toISOString()
+      };
+
+      await supabase.from('posts').insert(newStoryRecord);
+
+      // Save to local backup with is_story: true
+      try {
+        const localRaw = await AsyncStorage.getItem('@my_local_uploads');
+        const existing = localRaw ? JSON.parse(localRaw) : [];
+        await AsyncStorage.setItem('@my_local_uploads', JSON.stringify([newStoryRecord, ...existing]));
+      } catch (e) {}
 
       await rewardCoins(user.id, 'upload', user.id);
       if (audioRef.current) await audioRef.current.unloadAsync();
@@ -549,7 +570,7 @@ export default function SignalStudio() {
 
         <View style={styles.canvasArea}>
            <View style={styles.cinemaBox}>
-              {mediaType === 'video' ? <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Image source={{uri: media!}} style={styles.fullMedia} resizeMode="cover" />}
+              {mediaType === 'video' && media && player ? <VideoView key={media} player={player} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Image source={{uri: media!}} style={styles.fullMedia} resizeMode="cover" />}
               <LinearGradient colors={activeLens.colors as [string, string]} style={StyleSheet.absoluteFill} pointerEvents="none" />
               {isEnhancing && <Animated.View style={[styles.scanLine, { transform: [{ translateY: scanAnim }] }]} />}
 
@@ -647,7 +668,7 @@ export default function SignalStudio() {
            )}
 
            <View style={styles.finalPreview}>
-              {mediaType === 'video' ? <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Image source={{uri: media!}} style={StyleSheet.absoluteFill} resizeMode="cover" />}
+              {mediaType === 'video' && media && player ? <VideoView key={media} player={player} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Image source={{uri: media!}} style={StyleSheet.absoluteFill} resizeMode="cover" />}
            </View>
 
            <Text style={styles.labelTitle}>TITLE & DESCRIPTION</Text>
@@ -761,7 +782,7 @@ export default function SignalStudio() {
        <ScrollView style={{padding: 25}}>
           <View style={styles.reviewCard}>
              <View style={styles.finalCinemaBox}>
-                {mediaType === 'video' ? <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Image source={{uri: media!}} style={StyleSheet.absoluteFill} resizeMode="cover" />}
+                {mediaType === 'video' && media && player ? <VideoView key={media} player={player} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Image source={{uri: media!}} style={StyleSheet.absoluteFill} resizeMode="cover" />}
                 <View style={styles.monitorOverlay}><Text style={styles.monitorTag}>LIVE MONITORING</Text><View style={styles.monitorDot} /></View>
                 <Waveform />
              </View>

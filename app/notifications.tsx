@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, Text, FlatList, TouchableOpacity, Image, ActivityIndicator, RefreshControl, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -13,6 +13,58 @@ export default function NotificationsScreen() {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [isTestingLoop, setIsTestingLoop] = useState(false);
+  const testIntervalRef = useRef<any>(null);
+
+  const testMessages = [
+    { type: 'like', user: 'cyber_fan', content: 'liked your production "Cyberpunk Reel"' },
+    { type: 'comment', user: 'neon_creator', content: 'commented: "Insane quality signal!"' },
+    { type: 'subscribe', user: 'subscriber_99', content: 'subscribed to your channel' },
+    { type: 'collab_request', user: 'co_creator', content: 'wants to collaborate on Reel!' },
+    { type: 'system', user: 'VOEXI', content: '⚡ Earned 10 VOEXI Diamonds from video view!' }
+  ];
+
+  const start4sTestLoop = () => {
+    if (isTestingLoop) {
+      if (testIntervalRef.current) clearInterval(testIntervalRef.current);
+      setIsTestingLoop(false);
+      if (Haptics) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+      Alert.alert("TEST STOPPED 🔴", "4-Second Notification test loop stopped.");
+      return;
+    }
+
+    setIsTestingLoop(true);
+    if (Haptics) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    Alert.alert("4s TEST STARTED ⚡", "A new dummy notification will arrive every 4 seconds!");
+
+    let msgIndex = 0;
+    testIntervalRef.current = setInterval(() => {
+      const item = testMessages[msgIndex % testMessages.length];
+      msgIndex++;
+
+      const newDummy = {
+        id: `test_${Date.now()}`,
+        type: item.type,
+        user: item.user,
+        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(item.user)}&background=A855F7&color=fff&bold=true`,
+        content: item.content,
+        time: 'Just now',
+        timestamp: Date.now(),
+        userId: 'test_user',
+        status: 'pending',
+        vxId: 'VX-9876'
+      };
+
+      setNotifications(prev => [newDummy, ...prev]);
+      if (Haptics) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    }, 4000);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (testIntervalRef.current) clearInterval(testIntervalRef.current);
+    };
+  }, []);
 
   const fetchNotifications = async () => {
     try {
@@ -316,7 +368,12 @@ export default function NotificationsScreen() {
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>NOTIFICATIONS</Text>
-        <View style={{ width: 40 }} />
+        <TouchableOpacity onPress={start4sTestLoop} style={[styles.testLoopBtn, isTestingLoop && styles.testLoopActive]}>
+          <Ionicons name={isTestingLoop ? "stop-circle" : "flash"} size={14} color={isTestingLoop ? "#FF3B30" : "#00F2FE"} />
+          <Text style={[styles.testLoopTxt, isTestingLoop && { color: "#FF3B30" }]}>
+            {isTestingLoop ? "STOP" : "TEST 4s"}
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {loading ? (
@@ -345,6 +402,9 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: '#111' },
   headerTitle: { color: '#fff', fontSize: 16, fontWeight: 'bold', letterSpacing: 2 },
   backBtn: { width: 40 },
+  testLoopBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(0, 242, 254, 0.15)', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, borderWidth: 1, borderColor: '#00F2FE' },
+  testLoopActive: { backgroundColor: 'rgba(255, 59, 48, 0.15)', borderColor: '#FF3B30' },
+  testLoopTxt: { color: '#00F2FE', fontSize: 10, fontWeight: '900', letterSpacing: 0.5 },
   list: { padding: 15 },
   notifItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#080808', padding: 15, borderRadius: 18, marginBottom: 12, borderWidth: 1, borderColor: '#111' },
   avatar: { width: 45, height: 45, borderRadius: 22, marginRight: 15, borderWidth: 1, borderColor: '#222' },

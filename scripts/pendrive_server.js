@@ -1,29 +1,65 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 const PORT = 8080;
 
-// Local directories inside project
-const LOCAL_STORAGE_DIR = path.join(__dirname, '..', 'media_server_storage');
-const ASSETS_IMAGES_DIR = path.join(__dirname, '..', 'assets', 'images');
-
-if (!fs.existsSync(LOCAL_STORAGE_DIR)) {
-  fs.mkdirSync(LOCAL_STORAGE_DIR, { recursive: true });
+function getLocalIpAddress() {
+  try {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+      for (const iface of interfaces[name]) {
+        if (iface.family === 'IPv4' && !iface.internal) {
+          return iface.address;
+        }
+      }
+    }
+  } catch(e) {}
+  return 'localhost';
 }
 
-// Dynamically detect all storage directories
-function getStorageDirectories() {
-  const dirs = [LOCAL_STORAGE_DIR];
-  if (fs.existsSync(ASSETS_IMAGES_DIR)) {
-    dirs.push(ASSETS_IMAGES_DIR);
+const SERVER_IP = getLocalIpAddress();
+
+// Detect D: Drive PenDrive directory as primary storage
+function getPrimaryStorageDir() {
+  const dDrivePath = 'D:\\vibroxe_media_storage';
+  const dDriveRoot = 'D:\\';
+
+  try {
+    if (fs.existsSync(dDriveRoot)) {
+      if (!fs.existsSync(dDrivePath)) {
+        fs.mkdirSync(dDrivePath, { recursive: true });
+      }
+      console.log(`💾 [PEN DRIVE DETECTED] Media Storage redirected to D: Drive: ${dDrivePath}`);
+      return dDrivePath;
+    }
+  } catch (e) {
+    console.warn('[STORAGE WARNING] D: Drive access check:', e.message);
   }
 
-  const possibleDrives = ['D:\\', 'E:\\', 'F:\\', 'G:\\', 'H:\\'];
+  // Fallback to project directory if D: drive is not connected
+  const localProjectStorage = path.join(__dirname, '..', 'media_server_storage');
+  if (!fs.existsSync(localProjectStorage)) {
+    fs.mkdirSync(localProjectStorage, { recursive: true });
+  }
+  return localProjectStorage;
+}
+
+const LOCAL_STORAGE_DIR = getPrimaryStorageDir();
+const ASSETS_IMAGES_DIR = path.join(__dirname, '..', 'assets', 'images');
+
+// Dynamically detect all storage directories (D: Drive, Pen Drive, local folders)
+function getStorageDirectories() {
+  const dirs = [LOCAL_STORAGE_DIR];
+  const localProjectFallback = path.join(__dirname, '..', 'media_server_storage');
+  if (fs.existsSync(localProjectFallback)) dirs.push(localProjectFallback);
+  if (fs.existsSync(ASSETS_IMAGES_DIR)) dirs.push(ASSETS_IMAGES_DIR);
+
+  const possibleDrives = ['D:\\vibroxe_media_storage', 'D:\\', 'E:\\', 'F:\\', 'G:\\', 'H:\\'];
   for (const drive of possibleDrives) {
     try {
       if (fs.existsSync(drive)) {
-        fs.readdirSync(drive);
         dirs.push(drive);
       }
     } catch (e) {}
@@ -217,6 +253,24 @@ function saveEventsData(data) {
   }
 }
 
+// Profiles Persistence Helpers for Server 2
+function getProfilesData() {
+  const pathStr = path.join(LOCAL_STORAGE_DIR, 'profiles.json');
+  if (fs.existsSync(pathStr)) {
+    try { return JSON.parse(fs.readFileSync(pathStr, 'utf8')); } catch (e) {}
+  }
+  return {};
+}
+
+function saveProfilesData(data) {
+  const pathStr = path.join(LOCAL_STORAGE_DIR, 'profiles.json');
+  try {
+    fs.writeFileSync(pathStr, JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.error('Error saving profiles.json:', e);
+  }
+}
+
 // 🧠 VOEXI HYPER-RETAIN DOPAMINE AI RECOMMENDATION ENGINE (TIKTOK/INSTAGRAM V2)
 function calculateViralAlgorithmScore(filename, stats, dirPath, userId) {
   const cleanName = extractCleanFilename(filename);
@@ -289,8 +343,32 @@ function getFileDetails(fileName, stats, dirPath) {
   const ext = cleanName.split('.').pop().toLowerCase();
   const isVideo = ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext);
   const isAudio = ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac'].includes(ext);
+  const isPhoto = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
   const isZip = ['zip', 'rar', '7z', 'tar', 'gz'].includes(ext);
   const isText = ['txt', 'pdf', 'doc', 'docx'].includes(ext);
+  const is3D = ['glb', 'gltf', 'fbx', 'obj'].includes(ext);
+
+  // Auto-verify and normalize Category according to real File Extension
+  let verifiedCat = meta ? meta.category : null;
+
+  if (isPhoto) {
+    if (verifiedCat !== 'STORY' && !cleanName.toLowerCase().includes('story')) {
+      verifiedCat = 'PHOTOS';
+    }
+  } else if (isAudio) {
+    verifiedCat = 'SOUNDS';
+  } else if (isText) {
+    verifiedCat = 'WRITING';
+  } else if (is3D) {
+    verifiedCat = 'APP_ASSETS';
+  } else if (isVideo) {
+    if (verifiedCat === 'REMIX' || (meta && meta.is_remix)) verifiedCat = 'REMIX';
+    else if (verifiedCat === 'REELS' || cleanName.toLowerCase().includes('reel')) verifiedCat = 'REELS';
+    else if (verifiedCat === 'STORY' || cleanName.toLowerCase().includes('story')) verifiedCat = 'STORY';
+    else if (verifiedCat === 'LIVE' || cleanName.toLowerCase().includes('live')) verifiedCat = 'LIVE';
+    else if (verifiedCat === 'NEURAL_AI' || cleanName.toLowerCase().includes('ai')) verifiedCat = 'NEURAL_AI';
+    else verifiedCat = 'ENTERTAINMENT';
+  }
 
   const birthTime = stats && stats.birthtime ? new Date(stats.birthtime) : new Date();
   const formattedDate = birthTime.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -309,17 +387,6 @@ function getFileDetails(fileName, stats, dirPath) {
     const isAsset = dirPath && dirPath.includes('assets');
     const isRemixFile = cleanName.toLowerCase().includes('remix') || cleanName.toLowerCase().includes('duet');
 
-    let defaultCat = "ENTERTAINMENT";
-    if (isAsset) defaultCat = "APP_ASSETS";
-    else if (isRemixFile) defaultCat = "REMIX";
-    else if (isAudio) defaultCat = "SOUNDS";
-    else if (isZip) defaultCat = "COMPRESSED_ARCHIVE";
-    else if (isText) defaultCat = "WRITING";
-    else if (cleanName.toLowerCase().includes('reel')) defaultCat = "REELS";
-    else if (cleanName.toLowerCase().includes('story')) defaultCat = "STORY";
-    else if (cleanName.toLowerCase().includes('live')) defaultCat = "LIVE";
-    else if (cleanName.toLowerCase().includes('ai')) defaultCat = "NEURAL_AI";
-
     let descText = `HD Video content uploaded to VOEXI Cinema Vault.`;
     if (isText) {
       if (dirPath) {
@@ -327,8 +394,10 @@ function getFileDetails(fileName, stats, dirPath) {
       }
     } else if (isAudio) {
       descText = `Audio sound track / music hosted on VOEXI Sound Hub.`;
-    } else if (isAsset) {
-      descText = `Official VOEXI App Image Asset.`;
+    } else if (isPhoto) {
+      descText = `Photo asset uploaded to VOEXI Vault.`;
+    } else if (isAsset || is3D) {
+      descText = `Official VOEXI App 3D / Image Asset.`;
     } else if (isRemixFile) {
       descText = `Official Audio / Video Remix created on VOEXI Platform.`;
     }
@@ -339,8 +408,8 @@ function getFileDetails(fileName, stats, dirPath) {
       description: descText,
       uploader: isAsset ? "@voexi_system" : "@admin_creator",
       uploaded_at: formattedDate,
-      category: defaultCat,
-      tags: ["#voexi", `#${defaultCat.toLowerCase()}`],
+      category: verifiedCat || 'ENTERTAINMENT',
+      tags: ["#voexi", `#${(verifiedCat || 'entertainment').toLowerCase()}`],
       views: realViews,
       likes: realLikes,
       is_remix: isRemixFile,
@@ -349,6 +418,7 @@ function getFileDetails(fileName, stats, dirPath) {
       remix_count: 0
     };
   } else {
+    meta.category = verifiedCat || meta.category;
     meta.views = realViews;
     meta.likes = realLikes;
   }
@@ -491,15 +561,32 @@ const server = http.createServer((req, res) => {
       else if (req.url.includes('?id=')) rawParam = req.url.split('?id=')[1].split('&')[0];
 
       const cleanName = extractCleanFilename(rawParam);
+      const rawParamDecoded = decodeURIComponent(rawParam || '').toLowerCase();
+      const cleanNameDecoded = cleanName.toLowerCase();
+      const cleanNameNoExt = cleanNameDecoded.replace(/\.[^/.]+$/, ''); // e.g. "vx_1792850943221_559"
+      const digitsOnly = cleanNameDecoded.replace(/[^0-9]/g, '');
+
       const interactions = getInteractionsData();
+      let comments = [];
 
-      let comments = (interactions.comments && interactions.comments[cleanName]) || [];
+      if (interactions.comments) {
+        for (const [key, cList] of Object.entries(interactions.comments)) {
+          const keyDecoded = key.toLowerCase();
+          const keyNoExt = keyDecoded.replace(/\.[^/.]+$/, '');
+          const keyDigits = keyDecoded.replace(/[^0-9]/g, '');
 
-      // Fallback Search: If no comments under cleanName, check if comments exist under rawParam or any key in interactions.comments
-      if (comments.length === 0 && interactions.comments) {
-        for (const [k, cList] of Object.entries(interactions.comments)) {
-          if (extractCleanFilename(k) === cleanName || (rawParam && (k.includes(rawParam) || rawParam.includes(k)))) {
-            comments = cList;
+          // Match exact key, key without extension, rawParam, or matching digits
+          if (
+            keyDecoded === cleanNameDecoded ||
+            keyNoExt === cleanNameNoExt ||
+            (rawParamDecoded && (keyDecoded.includes(rawParamDecoded) || rawParamDecoded.includes(keyDecoded))) ||
+            (cleanNameNoExt && (keyDecoded.includes(cleanNameNoExt) || keyNoExt.includes(cleanNameNoExt))) ||
+            (digitsOnly.length >= 6 && keyDigits.includes(digitsOnly))
+          ) {
+            comments = cList.map((c, idx) => {
+              if (!c.id) c.id = `cmt_fixed_${idx}_${cleanNameNoExt}`;
+              return c;
+            });
             break;
           }
         }
@@ -517,13 +604,16 @@ const server = http.createServer((req, res) => {
       req.on('data', chunk => { body += chunk.toString(); });
       req.on('end', () => {
         try {
-          const { filename, postId, user, avatar, text, type, media_url } = JSON.parse(body || '{}');
+          const { id, filename, postId, user, avatar, text, type, media_url, parent_id, parentId } = JSON.parse(body || '{}');
           const cleanName = extractCleanFilename(filename || postId);
+          const fileObj = findFileInStorage(filename || postId || cleanName);
+          const targetKey = fileObj ? fileObj.filename : cleanName;
+          const realParentId = parent_id || parentId || null;
 
-          if (cleanName) {
+          if (targetKey) {
             const interactions = getInteractionsData();
             if (!interactions.comments) interactions.comments = {};
-            if (!interactions.comments[cleanName]) interactions.comments[cleanName] = [];
+            if (!interactions.comments[targetKey]) interactions.comments[targetKey] = [];
 
             let commentType = type || 'text';
             if (media_url) {
@@ -535,21 +625,22 @@ const server = http.createServer((req, res) => {
             const cleanUser = user ? (user.startsWith('@') ? user : '@' + user) : '@app_user';
 
             const newCmt = {
-              id: `cmt_${Date.now()}_${Math.floor(Math.random()*1000)}`,
+              id: id || `cmt_${Date.now()}_${Math.floor(Math.random()*1000)}`,
               user: cleanUser,
               avatar: avatar || 'https://via.placeholder.com/50',
               text: text || (commentType === 'voice' ? '🎙 Voice Signal' : (commentType === 'video' ? '🎬 Video Signal' : '🖼 Visual Signal')),
               type: commentType,
               media_url: media_url || null,
+              parent_id: realParentId,
               created_at: new Date().toISOString()
             };
 
-            interactions.comments[cleanName].unshift(newCmt);
+            interactions.comments[targetKey].unshift(newCmt);
             saveInteractionsData(interactions);
 
-            console.log(`💬 [MEDIA SERVER] New comment on ${cleanName}: "${newCmt.text}" by ${cleanUser} [Type: ${commentType}]`);
+            console.log(`💬 [MEDIA SERVER] New comment on ${targetKey}: "${newCmt.text}" by ${cleanUser} [Type: ${commentType}]`);
             res.writeHead(201, { 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify({ success: true, comment: newCmt, comments: interactions.comments[cleanName] }));
+            return res.end(JSON.stringify({ success: true, comment: newCmt, comments: interactions.comments[targetKey] }));
           }
         } catch (e) {
           console.error('Error posting comment:', e);
@@ -563,21 +654,34 @@ const server = http.createServer((req, res) => {
     if (req.method === 'DELETE') {
       const rawParam = req.url.includes('?file=') ? req.url.split('?file=')[1].split('&')[0] : '';
       const cleanName = extractCleanFilename(rawParam);
+      const fileObj = findFileInStorage(rawParam || cleanName);
+      const targetKey = fileObj ? fileObj.filename : cleanName;
       const cmtId = req.url.includes('?cmtId=') ? decodeURIComponent(req.url.split('?cmtId=')[1].split('&')[0]) : '';
 
-      if (cleanName && cmtId) {
+      if (targetKey && cmtId) {
         const interactions = getInteractionsData();
-        if (interactions.comments && interactions.comments[cleanName]) {
-          interactions.comments[cleanName] = interactions.comments[cleanName].filter(c => c.id !== cmtId);
+        if (interactions.comments) {
+          for (const k of Object.keys(interactions.comments)) {
+            if (k === targetKey || extractCleanFilename(k) === cleanName || k.includes(cleanName) || cleanName.includes(k)) {
+              // CASCADING DELETE: Match exact cmtId OR prefix ID match
+              interactions.comments[k] = interactions.comments[k].filter(c => {
+                if (!c || !c.id) return true;
+                const isTarget = c.id === cmtId || c.id.startsWith(cmtId) || cmtId.startsWith(c.id);
+                const isTargetChild = c.parent_id === cmtId || c.parentId === cmtId || (c.parent_id && (c.parent_id.startsWith(cmtId) || cmtId.startsWith(c.parent_id)));
+                return !isTarget && !isTargetChild;
+              });
+            }
+          }
           saveInteractionsData(interactions);
-          console.log(`🗑️ [MEDIA SERVER] Deleted comment ${cmtId} from ${cleanName}`);
+          console.log(`🗑️ [MEDIA SERVER] Deleted comment ${cmtId} from ${targetKey}`);
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({ success: true, comments: interactions.comments[cleanName] }));
+          return res.end(JSON.stringify({ success: true, comments: interactions.comments[targetKey] || [] }));
         }
       }
       res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: false, error: 'Comment not found' }));
+      return res.end(JSON.stringify({ success: false, error: 'Comment not found' }));
     }
+    return;
   }
 
   // API Endpoint: /api/reports
@@ -614,9 +718,9 @@ const server = http.createServer((req, res) => {
             const fileObj = findFileInStorage(cleanName);
             const fileMeta = getFileDetails(cleanName, fileObj ? fileObj.stats : null, fileObj ? fileObj.dirPath : null);
 
-            const mediaUrl = `http://192.168.31.39:${PORT}/${encodeURIComponent(cleanName)}`;
+            const mediaUrl = `http://${SERVER_IP}:${PORT}/${encodeURIComponent(cleanName)}`;
             const customThumb = findCustomThumbnailUrl(cleanName, fileObj ? fileObj.dirPath : null);
-            const thumbUrl = customThumb ? `http://192.168.31.39:${PORT}${customThumb}` : mediaUrl;
+            const thumbUrl = customThumb ? `http://${SERVER_IP}:${PORT}${customThumb}` : mediaUrl;
 
             const reports = getReportsData();
             const newReport = {
@@ -696,6 +800,97 @@ const server = http.createServer((req, res) => {
       }
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: false, error: 'Report ID required' }));
+    }
+    return;
+  }
+
+  // Serve /profiles.json directly
+  if (urlPath === '/profiles.json') {
+    const profiles = getProfilesData();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify(profiles));
+  }
+
+  // API Endpoint: /api/profiles (GET / POST)
+  if (urlPath === '/api/profiles') {
+    if (req.method === 'GET') {
+      const rawId = req.url.includes('?id=') ? req.url.split('?id=')[1].split('&')[0] : '';
+      const rawUsername = req.url.includes('?username=') ? req.url.split('?username=')[1].split('&')[0] : '';
+      const profiles = getProfilesData();
+
+      if (rawId && profiles[rawId]) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: true, profile: profiles[rawId] }));
+      }
+
+      if (rawUsername) {
+        const found = Object.values(profiles).find(p => p.username === rawUsername || p.channel_name === rawUsername);
+        if (found) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ success: true, profile: found }));
+        }
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: true, profiles: Object.values(profiles) }));
+    }
+
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk.toString(); });
+      req.on('end', () => {
+        try {
+          const profData = JSON.parse(body || '{}');
+          const profId = profData.id || profData.user_id;
+
+          if (profId) {
+            const profiles = getProfilesData();
+            profiles[profId] = {
+              ...profiles[profId],
+              ...profData,
+              updated_at: new Date().toISOString()
+            };
+            saveProfilesData(profiles);
+            console.log(`👤 [PROFILE DUAL-SYNC] Saved profile for "${profData.channel_name || profData.username || profId}" on Server 2`);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ success: true, profile: profiles[profId] }));
+          }
+        } catch (e) {
+          console.error('Error saving profile to Server 2:', e);
+        }
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'Invalid profile payload' }));
+      });
+      return;
+    }
+  }
+
+  // API Endpoint: High-Security Local Asset Upload (Base64 Image / BG / Logo)
+  if (urlPath === '/api/upload-asset') {
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk.toString(); });
+      req.on('end', () => {
+        try {
+          const { filename, base64Data, type } = JSON.parse(body || '{}');
+          if (base64Data) {
+            const cleanName = (filename || `${type || 'asset'}_${Date.now()}.png`).replace(/[^a-zA-Z0-9_.-]/g, '_');
+            const targetPath = path.join(LOCAL_STORAGE_DIR, cleanName);
+            const base64Image = base64Data.replace(/^data:image\/\w+;base64,/, '');
+            fs.writeFileSync(targetPath, base64Image, 'base64');
+
+            const assetUrl = `http://${SERVER_IP}:${PORT}/${encodeURIComponent(cleanName)}`;
+            console.log(`🔐 [HIGH SECURITY STORAGE] Saved asset "${cleanName}" on Local Server 2`);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ success: true, url: assetUrl, filename: cleanName }));
+          }
+        } catch (e) {
+          console.error("Error uploading local asset:", e);
+        }
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'Invalid asset payload' }));
+      });
+      return;
     }
   }
 
@@ -824,7 +1019,7 @@ const server = http.createServer((req, res) => {
   }
 
   // API Endpoint: Delete Media File
-  if (req.method === 'DELETE' || urlPath.startsWith('/api/delete')) {
+  if (urlPath.startsWith('/api/delete') || (req.method === 'DELETE' && urlPath !== '/api/comments')) {
     let targetFileName = '';
     if (req.url.includes('?file=')) {
       targetFileName = decodeURIComponent(req.url.split('?file=')[1].split('&')[0]);
@@ -873,7 +1068,15 @@ const server = http.createServer((req, res) => {
       if (!tagsParam) tagsParam = parsedUrl.searchParams.get('tags') || '';
     } catch(e) {}
 
-    if (!rawFileName) rawFileName = `media_${Date.now()}.mp4`;
+    const isStoryUpload = (catParam && (catParam.toUpperCase() === 'STORY' || catParam.toUpperCase() === 'STORY_MINI')) || req.url.includes('category=STORY') || req.url.includes('category=Story');
+    const isReelUpload = (catParam && catParam.toUpperCase() === 'REELS') || req.url.includes('category=REELS') || req.url.includes('category=Reels');
+
+    if (!rawFileName) {
+      rawFileName = isStoryUpload ? `story_${Date.now()}_${Math.floor(Math.random() * 1000)}.mp4` : (isReelUpload ? `reel_${Date.now()}_${Math.floor(Math.random() * 1000)}.mp4` : `media_${Date.now()}.mp4`);
+    } else if (isStoryUpload && !rawFileName.toLowerCase().startsWith('story_')) {
+      const fileExt = rawFileName.split('.').pop() || 'mp4';
+      rawFileName = `story_${Date.now()}_${Math.floor(Math.random() * 1000)}.${fileExt}`;
+    }
 
     const isRemixParam = req.headers['x-is-remix'] === 'true' || req.url.includes('?isRemix=true') || catParam === 'REMIX';
     const remixSourceFile = req.headers['x-remix-source-file'] || (req.url.includes('?remixSource=') ? decodeURIComponent(req.url.split('?remixSource=')[1].split('&')[0]) : null);
@@ -917,7 +1120,11 @@ const server = http.createServer((req, res) => {
 
       const formattedDate = new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-      let defaultCat = catParam || (isRemixParam ? 'REMIX' : (isVideo ? 'ENTERTAINMENT' : (isAudio ? 'SOUNDS' : 'PHOTOS')));
+      const headerCat = req.headers['x-category'];
+      const isStory = catParam === 'STORY' || headerCat === 'STORY' || cleanFileName.toLowerCase().startsWith('story_') || cleanFileName.toLowerCase().includes('story');
+      const isReel = catParam === 'REELS' || headerCat === 'REELS' || cleanFileName.toLowerCase().startsWith('reel_') || cleanFileName.toLowerCase().includes('reel');
+
+      let defaultCat = isStory ? 'STORY' : (isReel ? 'REELS' : (catParam || (isRemixParam ? 'REMIX' : (isVideo ? 'ENTERTAINMENT' : (isAudio ? 'SOUNDS' : 'PHOTOS')))));
 
       if (remixSourceFile && allMeta[remixSourceFile]) {
         allMeta[remixSourceFile].remix_count = (allMeta[remixSourceFile].remix_count || 0) + 1;
@@ -928,20 +1135,36 @@ const server = http.createServer((req, res) => {
         defaultTags.push('#remix', '#duet');
       }
 
+      let mediaUrlsHeader = req.headers['x-media-urls'] || '';
+      let parsedMediaUrls = null;
+      if (mediaUrlsHeader) {
+        try {
+          parsedMediaUrls = JSON.parse(mediaUrlsHeader);
+        } catch (e) {
+          if (typeof mediaUrlsHeader === 'string') {
+            parsedMediaUrls = mediaUrlsHeader.split(',').map(s => s.trim()).filter(Boolean);
+          }
+        }
+      }
+
       allMeta[cleanFileName] = {
         filename: cleanFileName,
         title: titleParam || cleanFileName.replace(/\.[^/.]+$/, "").replace(/_/g, " "),
-        description: descParam || (isRemixParam ? `Official Audio/Video Remix created on VOEXI Platform.` : (isVideo ? 'HD Video content uploaded to VOEXI Cinema Vault.' : (isAudio ? 'Music / Sound track uploaded to VOEXI Sound Hub.' : 'Photo asset uploaded to VOEXI Vault.'))),
+        description: descParam || (isStory ? 'VOEXI Instant Story' : (isRemixParam ? 'Official Audio/Video Remix created on VOEXI Platform.' : (isVideo ? 'HD Video content uploaded to VOEXI Cinema Vault.' : (isAudio ? 'Music / Sound track uploaded to VOEXI Sound Hub.' : 'Photo asset uploaded to VOEXI Vault.')))),
         uploader: uploaderParam ? (uploaderParam.startsWith('@') ? uploaderParam : '@' + uploaderParam) : '@admin_creator',
         uploaded_at: formattedDate,
         category: defaultCat,
+        post_type: isStory ? 'Story' : (isReel ? 'Reel' : (isVideo ? 'Video' : 'Photo')),
+        is_story: isStory,
+        is_reel: isReel,
         tags: defaultTags,
         views: 0,
         likes: 0,
         is_remix: isRemixParam,
         remix_source_file: remixSourceFile,
         remix_source_uploader: remixSourceUploader,
-        remix_count: 0
+        remix_count: 0,
+        media_urls: parsedMediaUrls
       };
       saveMediaMetadata(allMeta);
 
@@ -965,28 +1188,48 @@ const server = http.createServer((req, res) => {
     const interactions = getInteractionsData();
     const reports = getReportsData();
 
-    const jsonList = allFiles.map((item, i) => {
-      const cleanName = item.filename;
-      const meta = getFileDetails(cleanName, item.stats, item.dirPath);
-      const ext = cleanName.split('.').pop().toLowerCase();
+    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+    const nowMs = Date.now();
+
+    const jsonList = allFiles
+      .filter(item => {
+        const cleanName = item.filename;
+        const meta = getFileDetails(cleanName, item.stats, item.dirPath);
+        const isStory = meta.category === 'STORY' || meta.is_story || cleanName.toLowerCase().startsWith('story_') || cleanName.toLowerCase().includes('story');
+        if (isStory) {
+          const fileTime = meta.uploaded_at ? new Date(meta.uploaded_at).getTime() : item.stats.mtimeMs;
+          if (fileTime && !isNaN(fileTime) && (nowMs - fileTime) >= TWENTY_FOUR_HOURS) {
+            return false; // Auto-expire stories > 24 hours old on Server 2
+          }
+        }
+        return true;
+      })
+      .map((item, i) => {
+        const cleanName = item.filename;
+        const meta = getFileDetails(cleanName, item.stats, item.dirPath);
+        const ext = cleanName.split('.').pop().toLowerCase();
 
       const isVideo = ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext);
       const isAudio = ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac'].includes(ext);
       const isText = ext === 'txt';
 
       let postType = 'Video';
-      if (meta.category === 'REMIX' || meta.is_remix) postType = 'Remix';
-      else if (meta.category === 'REELS' || cleanName.toLowerCase().includes('reel')) postType = 'Reel';
+      if (meta.category === 'STORY' || meta.is_story || cleanName.toLowerCase().startsWith('story_') || cleanName.toLowerCase().includes('story')) postType = 'Story';
+      else if (meta.category === 'REMIX' || meta.is_remix) postType = 'Remix';
+      else if (meta.category === 'REELS' || meta.is_reel || cleanName.toLowerCase().startsWith('reel_') || cleanName.toLowerCase().includes('reel')) postType = 'Reel';
       else if (meta.category === 'WRITING' || isText) postType = 'Writing';
-      else if (meta.category === 'STORY' || cleanName.toLowerCase().includes('story')) postType = 'Story';
       else if (meta.category === 'SOUNDS' || isAudio) postType = 'Audio';
       else if (meta.category === 'LIVE' || cleanName.toLowerCase().includes('live')) postType = 'Live';
       else if (meta.category === 'NEURAL_AI' || cleanName.toLowerCase().includes('ai')) postType = 'Neural';
       else if (!isVideo) postType = 'Photo';
 
-      const url = `http://192.168.31.39:${PORT}/${encodeURIComponent(cleanName)}`;
+      const reqHost = req.headers['x-forwarded-host'] || req.headers.host || `${SERVER_IP}:${PORT}`;
+      const protocol = req.headers['x-forwarded-proto'] || (req.socket.encrypted ? 'https' : 'http');
+      const currentServerBase = `${protocol}://${reqHost}`;
+
+      const url = `${currentServerBase}/${encodeURIComponent(cleanName)}`;
       const customThumb = findCustomThumbnailUrl(cleanName, item.dirPath);
-      const thumbUrl = customThumb ? `http://192.168.31.39:${PORT}${customThumb}` : url;
+      const thumbUrl = customThumb ? `${currentServerBase}${customThumb}` : url;
 
       const commentsList = (interactions.comments && interactions.comments[cleanName]) || [];
       const totalLikes = (interactions.likes && interactions.likes[cleanName] !== undefined) ? interactions.likes[cleanName] : (meta.likes || 0);
@@ -1008,6 +1251,9 @@ const server = http.createServer((req, res) => {
         algorithm_metrics: algo.metrics,
         views: totalViews,
         media_url: url,
+        media_urls: (meta.media_urls && Array.isArray(meta.media_urls) && meta.media_urls.length > 0)
+          ? meta.media_urls.map(u => u.startsWith('http') ? u : `${currentServerBase}${u.startsWith('/') ? u : '/' + u}`)
+          : [url],
         thumbnail_url: thumbUrl,
         video_url: isVideo ? url : undefined,
         audio_url: isAudio ? url : undefined,
@@ -1064,13 +1310,14 @@ const server = http.createServer((req, res) => {
       const cat = details.category ? details.category.toUpperCase() : 'ENTERTAINMENT';
 
       if (cat === 'REMIX' || details.is_remix) remixCount++;
-      else if (cat === 'REELS' || item.filename.toLowerCase().includes('reel')) reelsCount++;
+      else if (cat === 'REELS') reelsCount++;
       else if (cat === 'WRITING' || isText) writingCount++;
-      else if (cat === 'STORY' || item.filename.toLowerCase().includes('story')) storyCount++;
+      else if (cat === 'STORY') storyCount++;
       else if (cat === 'SOUNDS' || isAudio) soundCount++;
-      else if (cat === 'LIVE' || item.filename.toLowerCase().includes('live')) liveCount++;
-      else if (cat === 'NEURAL_AI' || item.filename.toLowerCase().includes('ai')) neuralCount++;
-      else if (isVideo) videoCount++;
+      else if (cat === 'LIVE') liveCount++;
+      else if (cat === 'NEURAL_AI') neuralCount++;
+      else if (cat === 'PHOTOS' || isPhoto) photoCount++;
+      else if (isVideo || cat === 'ENTERTAINMENT') videoCount++;
       else photoCount++;
 
       const customThumb = findCustomThumbnailUrl(item.filename, item.dirPath);
@@ -1096,10 +1343,12 @@ const server = http.createServer((req, res) => {
     const mediaCardsGridHtml = mediaItems.map(item => {
       let typeTag = 'VIDEO';
       let iconSymbol = '🎬';
-      if (item.category === 'REMIX' || item.is_remix) { typeTag = 'REMIX'; iconSymbol = '🔀'; }
-      else if (item.category === 'REELS') { typeTag = 'REELS'; iconSymbol = '🎬'; }
+      const isStoryFile = item.post_type === 'Story' || item.category === 'STORY' || item.is_story || item.filename.toLowerCase().startsWith('story_') || item.filename.toLowerCase().includes('story');
+
+      if (isStoryFile) { typeTag = 'STORY'; iconSymbol = '📸'; }
+      else if (item.category === 'REMIX' || item.is_remix) { typeTag = 'REMIX'; iconSymbol = '🔀'; }
+      else if (item.category === 'REELS' || item.is_reel) { typeTag = 'REELS'; iconSymbol = '🎬'; }
       else if (item.category === 'WRITING' || item.isText) { typeTag = 'WRITING'; iconSymbol = '✍️'; }
-      else if (item.category === 'STORY') { typeTag = 'STORY'; iconSymbol = '📸'; }
       else if (item.category === 'SOUNDS' || item.isAudio) { typeTag = 'SOUNDS'; iconSymbol = '🎵'; }
       else if (item.category === 'LIVE') { typeTag = 'LIVE'; iconSymbol = '🔴'; }
       else if (item.category === 'NEURAL_AI') { typeTag = 'NEURAL_AI'; iconSymbol = '🧠'; }
@@ -1143,19 +1392,24 @@ const server = http.createServer((req, res) => {
           '<div class="card-stats">' +
             '<span>👁️ <span id="views_' + encodeURIComponent(item.filename) + '">' + item.views + '</span> views</span>' +
             '<span>❤️ <span id="likes_' + encodeURIComponent(item.filename) + '">' + item.likes + '</span> likes</span>' +
-            '<span>📦 ' + item.sizeMb + ' MB</span>' +
+            (item.isVideo ? '<span style="color:#00F2FE; font-weight:bold;">⚡ 1080p HD</span>' : '<span>📦 ' + item.sizeMb + ' MB</span>') +
           '</div>' +
         '</div>' +
         '<div class="card-actions">' +
-          '<button class="act-btn act-play" onclick="playInCinemaByFilename(\'' + encodeURIComponent(item.filename) + '\')">' + (item.isVideo ? '▶ CINEMA' : (item.isAudio || item.category === 'SOUNDS' ? '🎵 PLAY SOUND' : (item.isText ? '📖 READ' : '👁 VIEW'))) + '</button>' +
-          '<button class="act-btn act-remix" onclick="openRemixModalByFilename(\'' + encodeURIComponent(item.filename) + '\')">🔀 REMIX</button>' +
-          '<button class="act-btn act-edit" onclick="openEditModalByFilename(\'' + encodeURIComponent(item.filename) + '\')">✏ EDIT</button>' +
-          '<button class="act-btn act-del" onclick="deleteFileByFilename(\'' + encodeURIComponent(item.filename) + '\')">🗑 DELETE</button>' +
+          '<button class="act-btn act-play" onclick="playInCinemaByFilename(&quot;' + encodeURIComponent(item.filename) + '&quot;)">' + (item.isVideo ? '▶ CINEMA' : (item.isAudio || item.category === 'SOUNDS' ? '🎵 PLAY SOUND' : (item.isText ? '📖 READ' : '👁 VIEW'))) + '</button>' +
+          '<button class="act-btn act-remix" onclick="openRemixModalByFilename(&quot;' + encodeURIComponent(item.filename) + '&quot;)">🔀 REMIX</button>' +
+          '<button class="act-btn act-stats" onclick="openItemStatsModalByFilename(&quot;' + encodeURIComponent(item.filename) + '&quot;)">📊 STATS</button>' +
+          '<button class="act-btn act-edit" onclick="openEditModalByFilename(&quot;' + encodeURIComponent(item.filename) + '&quot;)">✏ EDIT</button>' +
+          '<button class="act-btn act-del" onclick="deleteFileByFilename(&quot;' + encodeURIComponent(item.filename) + '&quot;)">🗑 DELETE</button>' +
         '</div>' +
       '</div>';
     }).join('');
 
     const emptyMediaMessageHtml = mediaItems.length === 0 ? '<div style="color:#64748B; font-size:13px; text-align:center; padding:40px;">No content in storage vault. Click "Write Post" or "Upload Media" above to create your first VOEXI post!</div>' : '';
+
+    const profilesDataObj = getProfilesData();
+    const profilesCount = Object.keys(profilesDataObj).length;
+    const mediaItemsB64 = Buffer.from(JSON.stringify(mediaItems)).toString('base64');
 
     const fullHtml = `
       <!DOCTYPE html>
@@ -1229,6 +1483,8 @@ const server = http.createServer((req, res) => {
           .tab-btn.active, .tab-btn:hover { background: #E11D48; color: #FFF; border-color: #E11D48; }
 
           .action-buttons-group { display: flex; gap: 8px; }
+          .analytics-hub-btn { background: rgba(0, 242, 254, 0.15); color: #00F2FE; border: 1px solid rgba(0, 242, 254, 0.4); padding: 10px 16px; border-radius: 10px; font-size: 11px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+          .analytics-hub-btn:hover { background: #00F2FE; color: #000; }
           .upload-btn { background: linear-gradient(135deg, #E11D48, #F43F5E); color: #FFF; border: none; padding: 10px 16px; border-radius: 10px; font-size: 11px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 6px; }
           .write-btn { background: #14142B; color: #38BDF8; border: 1px solid rgba(56, 189, 248, 0.4); padding: 10px 16px; border-radius: 10px; font-size: 11px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 6px; }
           .report-hub-btn { background: rgba(225, 29, 72, 0.15); color: #F43F5E; border: 1px solid rgba(225, 29, 72, 0.4); padding: 10px 16px; border-radius: 10px; font-size: 11px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 6px; }
@@ -1260,12 +1516,14 @@ const server = http.createServer((req, res) => {
           .audio-player-wrapper { width: 100%; margin-top: 8px; }
           .audio-player-wrapper audio { width: 100%; height: 32px; border-radius: 6px; }
 
-          .card-actions { padding: 10px 14px; background: #05050C; border-top: 1px solid #14142B; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+          .card-actions { padding: 10px 14px; background: #05050C; border-top: 1px solid #14142B; display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
           .act-btn { padding: 7px 2px; border-radius: 8px; font-size: 9px; font-weight: 800; border: none; cursor: pointer; text-align: center; text-decoration: none; display: inline-block; white-space: nowrap; }
           .act-play { background: #18182B; color: #38BDF8; border: 1px solid rgba(56, 189, 248, 0.3); }
           .act-play:hover { background: #38BDF8; color: #000; }
           .act-remix { background: rgba(168, 85, 247, 0.15); color: #C084FC; border: 1px solid rgba(168, 85, 247, 0.3); }
           .act-remix:hover { background: #A855F7; color: #FFF; }
+          .act-stats { background: rgba(0, 242, 254, 0.15); color: #00F2FE; border: 1px solid rgba(0, 242, 254, 0.3); }
+          .act-stats:hover { background: #00F2FE; color: #000; }
           .act-edit { background: rgba(244, 63, 94, 0.15); color: #F43F5E; border: 1px solid rgba(244, 63, 94, 0.3); }
           .act-edit:hover { background: #F43F5E; color: #FFF; }
           .act-del { background: rgba(255,255,255,0.05); color: #64748B; border: 1px solid #14142B; }
@@ -1279,6 +1537,16 @@ const server = http.createServer((req, res) => {
           .form-input, .form-textarea, .form-select { width: 100%; background: #03030A; border: 1px solid #1E1E38; color: #FFF; padding: 10px 12px; border-radius: 10px; font-size: 12px; outline: none; }
 
           .toast { position: fixed; bottom: 25px; right: 25px; background: #E11D48; color: #FFF; padding: 12px 20px; border-radius: 12px; font-weight: 800; font-size: 12px; display: none; z-index: 3000; box-shadow: 0 4px 20px rgba(225, 29, 72, 0.4); }
+
+          .supabase-table-wrapper { width: 100%; overflow-x: auto; border: 1px solid #1E1E38; border-radius: 12px; background: #03030A; margin-top: 10px; }
+          .supabase-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 11px; color: #F1F5F9; }
+          .supabase-table th { background: #0A0A18; color: #38BDF8; padding: 12px 14px; font-weight: 900; text-transform: uppercase; font-size: 10px; border-bottom: 1px solid #1E1E38; white-space: nowrap; letter-spacing: 0.5px; }
+          .supabase-table td { padding: 10px 14px; border-bottom: 1px solid #14142B; vertical-align: middle; white-space: nowrap; }
+          .supabase-table tr:hover { background: rgba(124, 92, 255, 0.08); }
+          .table-avatar-img { width: 32px; height: 32px; border-radius: 16px; object-fit: cover; border: 1px solid #A855F7; }
+          .table-bg-img { width: 44px; height: 26px; border-radius: 6px; object-fit: cover; border: 1px solid #38BDF8; background: #000; }
+          .table-edit-btn { background: rgba(16, 185, 129, 0.18); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.4); padding: 5px 10px; border-radius: 6px; font-weight: 800; font-size: 10px; cursor: pointer; }
+          .table-edit-btn:hover { background: #10B981; color: #000; }
         </style>
       </head>
       <body>
@@ -1296,12 +1564,44 @@ const server = http.createServer((req, res) => {
           </div>
         </div>
 
+        <!-- MASTER ACTION CONTROL BAR -->
+        <div class="master-control-bar" style="background: #080811; border-bottom: 1px solid #1E1E38; padding: 12px 28px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; justify-content: space-between;">
+          <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+            <button onclick="openProfilesHubModal()" style="background: linear-gradient(135deg, #059669, #10B981); color: #FFF; border: none; padding: 10px 18px; border-radius: 10px; font-weight: 900; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);">
+              👤 PROFILES TABLE (${profilesCount})
+            </button>
+            <button onclick="openAnalyticsHubModal()" style="background: rgba(0, 242, 254, 0.15); color: #00F2FE; border: 1px solid rgba(0, 242, 254, 0.4); padding: 10px 16px; border-radius: 10px; font-weight: 800; font-size: 11px; cursor: pointer;">
+              📊 STUDIO ANALYTICS
+            </button>
+            <button onclick="openReportsHubModal()" style="background: rgba(225, 29, 72, 0.15); color: #F43F5E; border: 1px solid rgba(225, 29, 72, 0.4); padding: 10px 16px; border-radius: 10px; font-weight: 800; font-size: 11px; cursor: pointer;">
+              🚨 SIGNAL AUDITS (${pendingReports.length})
+            </button>
+            <button onclick="openWriteModal()" style="background: #14142B; color: #38BDF8; border: 1px solid rgba(56, 189, 248, 0.4); padding: 10px 16px; border-radius: 10px; font-weight: 800; font-size: 11px; cursor: pointer;">
+              ✍️ WRITE ARTICLE
+            </button>
+          </div>
+          <div>
+            <button onclick="openUploadModal()" style="background: linear-gradient(135deg, #E11D48, #F43F5E); color: #FFF; border: none; padding: 10px 18px; border-radius: 10px; font-weight: 900; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 15px rgba(225, 29, 72, 0.4);">
+              📤 UPLOAD MEDIA
+            </button>
+          </div>
+        </div>
+
         <div class="main-container">
           <!-- CINEMA THEATER STAGE -->
           <div id="cinemaStage" class="cinema-stage">
             <div class="cinema-header">
               <div id="cinemaTitle" class="cinema-title">🎬 WIDESCREEN CINEMA THEATER</div>
-              <button class="cinema-close" onclick="closeCinema()">✖ Close Theater</button>
+              <div style="display:flex; align-items:center; gap:10px;">
+                <select id="cinemaQualitySelect" class="form-select" style="padding:4px 10px; font-size:10px; background:#0F0F1A; color:#00F2FE; border:1px solid #00F2FE; border-radius:8px; font-weight:800; outline:none;" onchange="switchCinemaQuality(this.value)">
+                  <option value="auto">🌟 Auto (1080p Adaptive)</option>
+                  <option value="1080p">💎 1080p Full HD</option>
+                  <option value="720p">⚡ 720p HD</option>
+                  <option value="480p">📱 480p SD</option>
+                  <option value="360p">🔋 360p Data Saver</option>
+                </select>
+                <button class="cinema-close" onclick="closeCinema()">✖ Close Theater</button>
+              </div>
             </div>
             <div class="cinema-grid">
               <div id="cinemaPlayer" class="cinema-player-area"></div>
@@ -1338,6 +1638,10 @@ const server = http.createServer((req, res) => {
 
           <!-- METRICS BAR -->
           <div class="metrics-bar">
+            <div class="metric-card" onclick="openProfilesHubModal()" style="cursor:pointer; border-left-color:#10B981;">
+              <div class="metric-val" style="color:#10B981;">${profilesCount}</div>
+              <div class="metric-lbl">👤 Profiles</div>
+            </div>
             <div class="metric-card">
               <div class="metric-val">${reelsCount}</div>
               <div class="metric-lbl">🎬 Reels</div>
@@ -1353,10 +1657,6 @@ const server = http.createServer((req, res) => {
             <div class="metric-card">
               <div class="metric-val">${soundCount}</div>
               <div class="metric-lbl">🎵 Sounds</div>
-            </div>
-            <div class="metric-card">
-              <div class="metric-val">${neuralCount}</div>
-              <div class="metric-lbl">🧠 Neural AI</div>
             </div>
             <div class="metric-card">
               <div class="metric-val">${videoCount}</div>
@@ -1376,6 +1676,7 @@ const server = http.createServer((req, res) => {
             </div>
             <div class="filter-tabs">
               <button class="tab-btn active" onclick="setFilter('ALL', this)">All Content (${mediaItems.length})</button>
+              <button class="tab-btn" style="border-color:rgba(16, 185, 129, 0.5); color:#10B981;" onclick="openProfilesHubModal()">👤 PROFILES (${profilesCount})</button>
               <button class="tab-btn" onclick="setFilter('REMIX', this)">🔀 Remixes (${remixCount})</button>
               <button class="tab-btn" onclick="setFilter('REELS', this)">🎬 Reels (${reelsCount})</button>
               <button class="tab-btn" onclick="setFilter('WRITING', this)">✍️ Writing (${writingCount})</button>
@@ -1387,6 +1688,12 @@ const server = http.createServer((req, res) => {
               <button class="tab-btn" onclick="setFilter('PHOTO', this)">🖼️ Photos (${photoCount})</button>
             </div>
             <div class="action-buttons-group">
+              <button class="profile-hub-btn" onclick="openProfilesHubModal()" style="background: rgba(16, 185, 129, 0.15); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.4); padding: 10px 16px; border-radius: 10px; font-size: 11px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                <span>👤 PROFILES (${profilesCount})</span>
+              </button>
+              <button class="analytics-hub-btn" onclick="openAnalyticsHubModal()">
+                <span>📊 ANALYTICS</span>
+              </button>
               <button class="report-hub-btn" onclick="openReportsHubModal()">
                 <span>🚨 AUDITS (${pendingReports.length})</span>
               </button>
@@ -1442,6 +1749,148 @@ const server = http.createServer((req, res) => {
           </div>
         </div>
 
+        <!-- ANALYTICS HUB MODAL -->
+        <div id="analyticsHubModal" class="modal-bg">
+          <div class="modal-box" style="max-width: 680px;">
+            <div class="modal-title">
+              <span>📊 VOEXI MEDIA SERVER & CONTENT ANALYTICS</span>
+              <span style="cursor:pointer; color:#64748B;" onclick="closeAnalyticsHubModal()">✖</span>
+            </div>
+
+            <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; margin-bottom:16px;">
+              <div style="background:#03030A; border:1px solid #1E1E38; padding:14px; border-radius:14px; text-align:center;">
+                <div style="font-size:22px; font-weight:900; color:#00F2FE;">${mediaItems.reduce((a,c) => a + (Number(c.views) || 0), 0)}</div>
+                <div style="font-size:9px; font-weight:800; color:#64748B; margin-top:2px;">TOTAL VIEWS</div>
+              </div>
+              <div style="background:#03030A; border:1px solid #1E1E38; padding:14px; border-radius:14px; text-align:center;">
+                <div style="font-size:22px; font-weight:900; color:#FF0080;">${mediaItems.reduce((a,c) => a + (Number(c.likes) || 0), 0)}</div>
+                <div style="font-size:9px; font-weight:800; color:#64748B; margin-top:2px;">TOTAL LIKES</div>
+              </div>
+              <div style="background:#03030A; border:1px solid #1E1E38; padding:14px; border-radius:14px; text-align:center;">
+                <div style="font-size:22px; font-weight:900; color:#A855F7;">${mediaItems.length}</div>
+                <div style="font-size:9px; font-weight:800; color:#64748B; margin-top:2px;">TOTAL VAULT ITEMS</div>
+              </div>
+            </div>
+
+            <div style="background:#03030A; border:1px solid #1E1E38; border-radius:14px; padding:16px; margin-bottom:14px;">
+              <div style="color:#F43F5E; font-size:12px; font-weight:900; margin-bottom:10px; text-transform:uppercase;">CATEGORY BREAKDOWN & VAULT CAPACITY</div>
+              <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; font-size:11px; color:#F1F5F9;">
+                <div style="background:#080811; padding:8px 12px; border-radius:8px; border:1px solid #14142B; display:flex; justify-content:space-between;">
+                  <span>🎬 Reels:</span> <b style="color:#EC4899;">${reelsCount}</b>
+                </div>
+                <div style="background:#080811; padding:8px 12px; border-radius:8px; border:1px solid #14142B; display:flex; justify-content:space-between;">
+                  <span>🔀 Remixes:</span> <b style="color:#A855F7;">${remixCount}</b>
+                </div>
+                <div style="background:#080811; padding:8px 12px; border-radius:8px; border:1px solid #14142B; display:flex; justify-content:space-between;">
+                  <span>🎵 Sounds:</span> <b style="color:#00F2FE;">${soundCount}</b>
+                </div>
+                <div style="background:#080811; padding:8px 12px; border-radius:8px; border:1px solid #14142B; display:flex; justify-space-between;">
+                  <span>🖼️ Photos:</span> <b style="color:#00C851;">${photoCount}</b>
+                </div>
+                <div style="background:#080811; padding:8px 12px; border-radius:8px; border:1px solid #14142B; display:flex; justify-space-between;">
+                  <span>✍️ Articles:</span> <b style="color:#FFD700;">${writingCount}</b>
+                </div>
+                <div style="background:#080811; padding:8px 12px; border-radius:8px; border:1px solid #14142B; display:flex; justify-space-between;">
+                  <span>📹 HD Videos:</span> <b style="color:#3B82F6;">${videoCount}</b>
+                </div>
+                <div style="background:#080811; padding:8px 12px; border-radius:8px; border:1px solid #14142B; display:flex; justify-space-between;">
+                  <span>🧠 Neural AI:</span> <b style="color:#A855F7;">${neuralCount}</b>
+                </div>
+                <div style="background:#080811; padding:8px 12px; border-radius:8px; border:1px solid #14142B; display:flex; justify-space-between;">
+                  <span>💾 Storage:</span> <b style="color:#00F2FE;">${totalStorageMb} MB</b>
+                </div>
+              </div>
+            </div>
+
+            <div style="background:#03030A; border:1px solid #1E1E38; border-radius:14px; padding:14px; text-align:center;">
+              <div style="color:#38BDF8; font-size:11px; font-weight:bold; margin-bottom:4px;">📱 MOBILE APP ANALYTICS LINK</div>
+              <div style="color:#64748B; font-size:10px;">All content statistics and engagement metrics are synced live with VOEXI Mobile App Analytics.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ITEM DEEP ANALYTICS STATS MODAL (APP UI MATCH) -->
+        <div id="itemStatsModal" class="modal-bg">
+          <div class="modal-box" style="max-width: 620px; background: #070712; border: 1.5px solid #00F2FE; box-shadow: 0 0 35px rgba(0, 242, 254, 0.25); border-radius: 24px; padding: 26px;">
+            <div class="modal-title" style="border-bottom: 1px solid #1A1A2E; padding-bottom: 12px; margin-bottom: 18px;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 20px;">📊</span>
+                <div>
+                  <div style="font-size: 15px; font-weight: 900; color: #00F2FE; letter-spacing: 1px;">VX STUDIO ANALYTICS</div>
+                  <div style="font-size: 10px; font-weight: 700; color: #64748B;">SIGNAL PERFORMANCE PULSE</div>
+                </div>
+              </div>
+              <span style="cursor:pointer; color:#64748B; font-size: 18px;" onclick="closeItemStatsModal()">✖</span>
+            </div>
+
+            <!-- CONTENT HEADER CARD -->
+            <div style="background: linear-gradient(135deg, #11111F, #080811); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 18px; padding: 16px; margin-bottom: 18px; display: flex; align-items: center; gap: 14px;">
+              <div id="statItemIcon" style="width: 50px; height: 50px; border-radius: 14px; background: rgba(168, 85, 247, 0.15); border: 1px solid #A855F7; display: flex; align-items: center; justify-content: center; font-size: 24px;">
+                🖼️
+              </div>
+              <div style="flex: 1; overflow: hidden;">
+                <div id="statItemTitle" style="color:#FFF; font-size:15px; font-weight:900; margin-bottom:4px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">File Title</div>
+                <div id="statItemUploader" style="color:#F43F5E; font-size:11px; font-weight:800;">👤 @uploader</div>
+              </div>
+              <div style="background: rgba(0, 242, 254, 0.15); color: #00F2FE; border: 1px solid rgba(0, 242, 254, 0.3); padding: 4px 10px; border-radius: 12px; font-size: 10px; font-weight: 900;">
+                ⚡ REAL-TIME
+              </div>
+            </div>
+
+            <!-- 3 STATS CARDS GRID -->
+            <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; margin-bottom:18px;">
+              <div style="background:#0C0C1A; border:1px solid #1E1E38; padding:16px; border-radius:18px; text-align:center; position:relative; overflow:hidden;">
+                <div style="position:absolute; top:0; left:0; width:3px; height:100%; background:#00F2FE;"></div>
+                <div id="statViewsVal" style="font-size:24px; font-weight:900; color:#FFF;">0</div>
+                <div style="font-size:9px; font-weight:900; color:#00F2FE; letter-spacing:1px; margin-top:4px;">TOTAL VIEWS</div>
+              </div>
+
+              <div style="background:#0C0C1A; border:1px solid #1E1E38; padding:16px; border-radius:18px; text-align:center; position:relative; overflow:hidden;">
+                <div style="position:absolute; top:0; left:0; width:3px; height:100%; background:#FF0080;"></div>
+                <div id="statLikesVal" style="font-size:24px; font-weight:900; color:#FFF;">0</div>
+                <div style="font-size:9px; font-weight:900; color:#FF0080; letter-spacing:1px; margin-top:4px;">TOTAL LIKES</div>
+              </div>
+
+              <div style="background:#0C0C1A; border:1px solid #1E1E38; padding:16px; border-radius:18px; text-align:center; position:relative; overflow:hidden;">
+                <div style="position:absolute; top:0; left:0; width:3px; height:100%; background:#A855F7;"></div>
+                <div id="statCommentsVal" style="font-size:24px; font-weight:900; color:#FFF;">0</div>
+                <div style="font-size:9px; font-weight:900; color:#A855F7; letter-spacing:1px; margin-top:4px;">COMMENTS</div>
+              </div>
+            </div>
+
+            <!-- PERFORMANCE METRICS & ALGORITHM VIRALITY BOX -->
+            <div style="background: linear-gradient(135deg, #0A0A16, #05050C); border:1px solid #1E1E38; border-radius:20px; padding:18px; margin-bottom:18px;">
+              <div style="color:#FFD700; font-size:11px; font-weight:900; letter-spacing:1.5px; margin-bottom:12px; display:flex; align-items:center; gap:6px;">
+                <span>🧠</span> NEURAL VIRALITY ALGORITHM & ENGAGEMENT
+              </div>
+
+              <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; font-size:12px; color:#F1F5F9;">
+                <div style="background:#03030A; padding:10px 14px; border-radius:12px; border:1px solid #18182B;">
+                  <div style="color:#64748B; font-size:9px; font-weight:800;">VIRALITY SCORE</div>
+                  <div id="statScoreVal" style="color:#22C55E; font-size:16px; font-weight:900; margin-top:2px;">100.0</div>
+                </div>
+
+                <div style="background:#03030A; padding:10px 14px; border-radius:12px; border:1px solid #18182B;">
+                  <div style="color:#64748B; font-size:9px; font-weight:800;">AVG WATCH TIME</div>
+                  <div id="statWatchVal" style="color:#00F2FE; font-size:16px; font-weight:900; margin-top:2px;">5.0s</div>
+                </div>
+
+                <div style="background:#03030A; padding:10px 14px; border-radius:12px; border:1px solid #18182B;">
+                  <div style="color:#64748B; font-size:9px; font-weight:800;">RE-WATCH LOOPS</div>
+                  <div id="statLoopsVal" style="color:#A855F7; font-size:16px; font-weight:900; margin-top:2px;">0</div>
+                </div>
+
+                <div style="background:#03030A; padding:10px 14px; border-radius:12px; border:1px solid #18182B;">
+                  <div style="color:#64748B; font-size:9px; font-weight:800;">FILE SIZE</div>
+                  <div id="statSizeVal" style="color:#FFF; font-size:16px; font-weight:900; margin-top:2px;">0.3 MB</div>
+                </div>
+              </div>
+            </div>
+
+            <button onclick="closeItemStatsModal()" class="upload-btn" style="width:100%; justify-content:center; padding:14px; font-size:12px; letter-spacing:1px; border-radius:14px; background: linear-gradient(135deg, #00F2FE, #6366F1);">CLOSE ANALYTICS</button>
+          </div>
+        </div>
+
         <!-- MODERATION & REPORTS HUB MODAL -->
         <div id="reportsHubModal" class="modal-bg">
           <div class="modal-box" style="max-width: 680px;">
@@ -1460,6 +1909,144 @@ const server = http.createServer((req, res) => {
             <div id="reportsListContainer" style="max-height: 480px; overflow-y: auto;">
               <div style="color:#64748B; font-size:11px; text-align:center; padding:20px;">Loading moderation audits...</div>
             </div>
+          </div>
+        </div>
+
+        <!-- PROFILES & CREATORS DUAL-SYNC HUB MODAL -->
+        <div id="profilesHubModal" class="modal-bg">
+          <div class="modal-box" style="max-width: 980px;">
+            <div class="modal-title">
+              <span>👤 SUPABASE-STYLE CREATORS & PROFILES TABLE (SERVER 2)</span>
+              <span style="cursor:pointer; color:#64748B;" onclick="closeProfilesHubModal()">✖</span>
+            </div>
+
+            <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 12px; padding: 12px; margin-bottom: 15px; font-size: 11px; color: #10B981; display: flex; align-items: center; justify-content: space-between;">
+              <span>🌐 Interactive Supabase-Style Creators Data Table synced with Server 2 (<code>profiles.json</code>).</span>
+              <button onclick="refreshProfilesList()" style="background:#10B981; color:#000; border:none; padding:4px 10px; border-radius:6px; font-weight:900; cursor:pointer;">🔄 REFRESH TABLE</button>
+            </div>
+
+            <div id="profilesListContainer" style="max-height: 520px; overflow-y: auto;">
+              <div style="color:#64748B; font-size:11px; text-align:center; padding:20px;">Loading creator profiles table...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- CREATOR CONTENT VAULT MODAL (SHOWS CREATOR UPLOADED VIDEOS, REELS, MUSIC, ARTICLES) -->
+        <div id="creatorContentVaultModal" class="modal-bg" style="z-index: 2500;">
+          <div class="modal-box" style="max-width: 900px;">
+            <div class="modal-title">
+              <span id="vaultModalTitle">🎬 CREATOR CONTENT VAULT</span>
+              <span style="cursor:pointer; color:#64748B;" onclick="closeCreatorContentVaultModal()">✖</span>
+            </div>
+
+            <!-- CREATOR HEADER METRICS PILL -->
+            <div id="creatorVaultHeader" style="background: rgba(0, 242, 254, 0.08); border: 1px solid rgba(0, 242, 254, 0.25); border-radius: 14px; padding: 14px; margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <img id="vaultCreatorAvatar" src="https://via.placeholder.com/50" style="width: 44px; height: 44px; border-radius: 22px; object-fit: cover; border: 1.5px solid #00F2FE;" />
+                <div>
+                  <div id="vaultCreatorName" style="color: #FFF; font-weight: 900; font-size: 15px;">Creator Name</div>
+                  <div id="vaultCreatorHandle" style="color: #38BDF8; font-weight: 800; font-size: 11px;">@handle • ID: VX-9082</div>
+                </div>
+              </div>
+
+              <div style="display: flex; gap: 12px; font-size: 11px;">
+                <div style="background: #03030A; border: 1px solid #1E1E38; padding: 6px 12px; border-radius: 8px; text-align: center;">
+                  <div style="color: #64748B; font-size: 9px; font-weight: 800;">TOTAL UPLOADS</div>
+                  <div id="vaultUploadsCount" style="color: #00F2FE; font-size: 14px; font-weight: 900;">0</div>
+                </div>
+                <div style="background: #03030A; border: 1px solid #1E1E38; padding: 6px 12px; border-radius: 8px; text-align: center;">
+                  <div style="color: #64748B; font-size: 9px; font-weight: 800;">TOTAL VIEWS</div>
+                  <div id="vaultViewsCount" style="color: #22C55E; font-size: 14px; font-weight: 900;">0</div>
+                </div>
+                <div style="background: #03030A; border: 1px solid #1E1E38; padding: 6px 12px; border-radius: 8px; text-align: center;">
+                  <div style="color: #64748B; font-size: 9px; font-weight: 800;">TOTAL LIKES</div>
+                  <div id="vaultLikesCount" style="color: #FF0080; font-size: 14px; font-weight: 900;">0</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- CREATOR CONTENT GRID -->
+            <div id="creatorVaultContainer" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; max-height: 480px; overflow-y: auto; padding-right: 4px;">
+              <div style="color: #64748B; font-size: 11px; text-align: center; padding: 30px; grid-column: span 3;">Select a creator to view uploaded content...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- EDIT CREATOR PROFILE MODAL -->
+        <div id="editProfileModal" class="modal-bg">
+          <div class="modal-box" style="max-width: 580px;">
+            <div class="modal-title">
+              <span>✏ EDIT CREATOR PROFILE METADATA</span>
+              <span style="cursor:pointer; color:#64748B;" onclick="closeEditProfileModal()">✖</span>
+            </div>
+
+            <input type="hidden" id="pProfId" />
+
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+              <div class="form-group">
+                <label class="form-lbl">Channel / Station Name</label>
+                <input type="text" id="pChannelName" class="form-input" placeholder="e.g. VOEXI Studio" />
+              </div>
+              <div class="form-group">
+                <label class="form-lbl">Username (@handle)</label>
+                <input type="text" id="pUsername" class="form-input" placeholder="e.g. voexi_official" />
+              </div>
+            </div>
+
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+              <div class="form-group">
+                <label class="form-lbl">Gender</label>
+                <select id="pGender" class="form-select">
+                  <option value="Male">👨 Male</option>
+                  <option value="Female">👩 Female</option>
+                  <option value="Others">🌈 Others</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-lbl">Country</label>
+                <input type="text" id="pCountry" class="form-input" placeholder="e.g. India" />
+              </div>
+            </div>
+
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+              <div class="form-group">
+                <label class="form-lbl">State</label>
+                <input type="text" id="pState" class="form-input" placeholder="State" />
+              </div>
+              <div class="form-group">
+                <label class="form-lbl">Category</label>
+                <input type="text" id="pCategory" class="form-input" placeholder="Entertainment" />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-lbl">VX Station ID Number</label>
+              <input type="text" id="pVxId" class="form-input" placeholder="VX-9082 1120" />
+            </div>
+
+            <div class="form-group">
+              <label class="form-lbl">Creator Bio</label>
+              <textarea id="pBio" class="form-textarea" rows="3" placeholder="Creator bio..."></textarea>
+            </div>
+
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+              <div class="form-group">
+                <label class="form-lbl">Monetization Status</label>
+                <select id="pMonetizationStatus" class="form-select">
+                  <option value="approved">🟢 Approved</option>
+                  <option value="pending">🟡 Pending</option>
+                  <option value="not_applied">⚪ Not Applied</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-lbl">Avatar Image URL</label>
+                <input type="text" id="pAvatarUrl" class="form-input" placeholder="https://..." />
+              </div>
+            </div>
+
+            <button onclick="saveProfileChangesFromServer2()" class="upload-btn" style="width:100%; justify-content:center; padding:12px; margin-top:10px; background: linear-gradient(135deg, #10B981, #059669);">
+              💾 SAVE CREATOR PROFILE
+            </button>
           </div>
         </div>
 
@@ -1627,15 +2214,336 @@ const server = http.createServer((req, res) => {
         <div id="toast" class="toast"></div>
 
         <script>
-          const ALL_MEDIA_ITEMS = ${JSON.stringify(mediaItems)};
+          function showToast(msg) {
+            try {
+              const t = document.getElementById('toast');
+              if (t) {
+                t.innerText = msg;
+                t.style.display = 'block';
+                setTimeout(() => { t.style.display = 'none'; }, 3000);
+              }
+            } catch (e) {}
+          }
+
+          let ALL_SERVER_PROFILES = {};
+
+          async function refreshProfilesList() {
+            const container = document.getElementById('profilesListContainer');
+            if (!container) return;
+            container.innerHTML = '<div style="color:#64748B; font-size:11px; text-align:center; padding:20px;">Loading creator profiles table...</div>';
+
+            try {
+              const res = await fetch('/api/profiles');
+              const data = await res.json();
+              if (data.success && data.profiles && data.profiles.length > 0) {
+                ALL_SERVER_PROFILES = {};
+                data.profiles.forEach(p => { ALL_SERVER_PROFILES[p.id || p.user_id] = p; });
+
+                let tableHtml = '<div class="supabase-table-wrapper"><table class="supabase-table">';
+                tableHtml += '<thead><tr>';
+                tableHtml += '<th>ID / VX NUMBER</th>';
+                tableHtml += '<th>CHANNEL NAME</th>';
+                tableHtml += '<th>USERNAME</th>';
+                tableHtml += '<th>LOGO / AVATAR</th>';
+                tableHtml += '<th>CARD BG PHOTO</th>';
+                tableHtml += '<th>GENDER</th>';
+                tableHtml += '<th>COUNTRY</th>';
+                tableHtml += '<th>CATEGORY</th>';
+                tableHtml += '<th>MONETIZATION</th>';
+                tableHtml += '<th>ACTION</th>';
+                tableHtml += '</tr></thead><tbody>';
+
+                data.profiles.forEach(function(p) {
+                  const pId = p.id || p.user_id;
+                  const name = p.channel_name || p.username || 'VOEXI Creator';
+                  const handle = p.username ? '@' + p.username : '@creator';
+                  const vxId = p.vx_id_number || 'VX-9082 1120';
+                  const gender = p.gender || 'Not Specified';
+                  const country = p.country || 'Global';
+                  const category = p.category || p.channel_category || 'Entertainment';
+                  const monStatus = p.monetization_status || (p.is_monetized ? 'approved' : 'not_applied');
+                  const monBadge = monStatus === 'approved' ? '<span style="color:#10B981; font-weight:900;">🟢 APPROVED</span>' : monStatus === 'pending' ? '<span style="color:#FFD700; font-weight:900;">🟡 PENDING</span>' : '<span style="color:#64748B; font-weight:900;">⚪ NOT APPLIED</span>';
+
+                  const avatarUri = p.custom_logo_url || p.logo_url || p.avatar_url || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(name);
+                  const bgUri = p.card_background_uri || p.card_bg_url || p.custom_bg_uri;
+
+                  tableHtml += '<tr>';
+                  tableHtml += '<td style="font-weight:800; color:#38BDF8;">' + vxId + '</td>';
+                  tableHtml += '<td style="font-weight:900; color:#FFF;">' + name + '</td>';
+                  tableHtml += '<td style="color:#A855F7; font-weight:800;">' + handle + '</td>';
+                  tableHtml += '<td><img src="' + avatarUri + '" class="table-avatar-img" /></td>';
+                  tableHtml += '<td>' + (bgUri ? '<img src="' + bgUri + '" class="table-bg-img" />' : '<span style="color:#444;">--</span>') + '</td>';
+                  tableHtml += '<td>' + gender + '</td>';
+                  tableHtml += '<td>' + country + '</td>';
+                  tableHtml += '<td>' + category + '</td>';
+                  tableHtml += '<td>' + monBadge + '</td>';
+                  tableHtml += '<td><div style="display:flex; gap:6px;">' +
+                    '<button onclick="openEditProfileModal(&quot;' + pId + '&quot;)" class="table-edit-btn">✏ EDIT ROW</button>' +
+                    '<button onclick="viewCreatorContentHub(&quot;' + pId + '&quot;, &quot;' + encodeURIComponent(name) + '&quot;, &quot;' + encodeURIComponent(handle) + '&quot;)" class="table-view-btn" style="background:rgba(0, 242, 254, 0.18); color:#00F2FE; border:1px solid rgba(0, 242, 254, 0.4); padding:5px 10px; border-radius:6px; font-weight:800; font-size:10px; cursor:pointer;">🔍 CHECK CONTENT</button>' +
+                  '</div></td>';
+                  tableHtml += '</tr>';
+                });
+
+                tableHtml += '</tbody></table></div>';
+                container.innerHTML = tableHtml;
+              } else {
+                container.innerHTML = '<div style="color:#64748B; font-size:11px; text-align:center; padding:20px;">No synced creator profiles found in profiles.json yet. Update a profile in the app to sync!</div>';
+              }
+            } catch (e) {
+              container.innerHTML = '<div style="color:#EF4444; font-size:11px; text-align:center; padding:20px;">Could not load server profiles table.</div>';
+            }
+          }
+
+          function openProfilesHubModal() {
+            try {
+              const el = document.getElementById('profilesHubModal');
+              if (el) el.style.display = 'flex';
+              refreshProfilesList();
+            } catch (e) {
+              console.error(e);
+            }
+          }
+
+          function closeProfilesHubModal() {
+            try {
+              const el = document.getElementById('profilesHubModal');
+              if (el) el.style.display = 'none';
+            } catch (e) {}
+          }
+
+          function openCreatorContentVaultModal() {
+            try {
+              const el = document.getElementById('creatorContentVaultModal');
+              if (el) el.style.display = 'flex';
+            } catch (e) {}
+          }
+
+          function closeCreatorContentVaultModal() {
+            try {
+              const el = document.getElementById('creatorContentVaultModal');
+              if (el) el.style.display = 'none';
+            } catch (e) {}
+          }
+
+          function renderVaultGridItems(itemList) {
+            const container = document.getElementById('creatorVaultContainer');
+            if (!container) return;
+
+            if (!itemList || itemList.length === 0) {
+              container.innerHTML = '<div style="color:#64748B; font-size:12px; text-align:center; padding:40px; grid-column: span 3; background:#03030A; border-radius:12px; border:1px solid #1E1E38;">' +
+                '📭 No uploaded media or articles found in this selection on Server 2 yet.</div>';
+              return;
+            }
+
+            container.innerHTML = itemList.map(function(item) {
+              const encFile = encodeURIComponent(item.filename);
+              const uploaderTag = item.uploader ? (' • 👤 ' + item.uploader) : '';
+              return '<div style="background:#03030A; border:1px solid #1E1E38; border-radius:12px; padding:12px; display:flex; flex-direction:column; justify-content:space-between;">' +
+                '<div style="font-weight:900; color:#FFF; font-size:12px; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + (item.title || item.filename) + '</div>' +
+                '<div style="font-size:10px; color:#38BDF8; font-weight:800; margin-bottom:8px;">📌 ' + (item.category || 'ENTERTAINMENT') + uploaderTag + '</div>' +
+                '<div style="display:flex; justify-content:space-between; font-size:10px; color:#94A3B8; margin-bottom:10px;">' +
+                  '<span>👁️ ' + (item.views || 0) + ' views</span>' +
+                  '<span>❤️ ' + (item.likes || 0) + ' likes</span>' +
+                '</div>' +
+                '<div style="display:flex; gap:6px; margin-top:auto;">' +
+                  '<button onclick="playInCinemaByFilename(&quot;' + encFile + '&quot;)" class="act-btn act-play" style="flex:1; padding:6px; font-size:9px;">▶ PLAY</button>' +
+                  '<button onclick="openItemStatsModalByFilename(&quot;' + encFile + '&quot;)" class="act-btn act-stats" style="flex:1; padding:6px; font-size:9px;">📊 STATS</button>' +
+                  '<button onclick="deleteFileByFilename(&quot;' + encFile + '&quot;)" class="act-btn act-del" style="padding:6px; font-size:9px;">🗑</button>' +
+                '</div>' +
+              '</div>';
+            }).join('');
+          }
+
+          function showAllServerMediaInVault() {
+            renderVaultGridItems(ALL_MEDIA_ITEMS);
+            document.getElementById('vaultModalTitle').innerText = '📂 SERVER 2 STORAGE VAULT (' + ALL_MEDIA_ITEMS.length + ' FILES)';
+            document.getElementById('vaultUploadsCount').innerText = ALL_MEDIA_ITEMS.length;
+            const totalViews = ALL_MEDIA_ITEMS.reduce(function(acc, item) { return acc + (parseInt(item.views) || 0); }, 0);
+            const totalLikes = ALL_MEDIA_ITEMS.reduce(function(acc, item) { return acc + (parseInt(item.likes) || 0); }, 0);
+            document.getElementById('vaultViewsCount').innerText = totalViews;
+            document.getElementById('vaultLikesCount').innerText = totalLikes;
+          }
+
+          async function viewCreatorContentHub(pId, encName, encHandle) {
+            try {
+              const name = decodeURIComponent(encName || '');
+              const handle = decodeURIComponent(encHandle || '');
+              const p = ALL_SERVER_PROFILES[pId] || {};
+
+              const cleanHandle = (p.username || handle.replace('@', '') || name).toLowerCase().trim();
+              const cleanName = (p.channel_name || name || handle).trim();
+              const avatarUri = p.custom_logo_url || p.logo_url || p.avatar_url || ('https://ui-avatars.com/api/?name=' + encodeURIComponent(cleanName));
+
+              document.getElementById('vaultModalTitle').innerText = '🎬 ' + cleanName.toUpperCase() + ' - CONTENT VAULT';
+              document.getElementById('vaultCreatorAvatar').src = avatarUri;
+              document.getElementById('vaultCreatorName').innerText = cleanName;
+              document.getElementById('vaultCreatorHandle').innerText = '@' + cleanHandle + ' • ID: ' + (p.vx_id_number || 'VX-9082 1120');
+
+              // Fetch live /files.json for real-time views, likes & uploads count
+              try {
+                const freshRes = await fetch('/files.json');
+                const freshItems = await freshRes.json();
+                if (Array.isArray(freshItems) && freshItems.length > 0) {
+                  ALL_MEDIA_ITEMS = freshItems;
+                }
+              } catch (err) {}
+
+              // Filter ALL_MEDIA_ITEMS for this creator
+              let creatorItems = ALL_MEDIA_ITEMS.filter(function(m) {
+                if (pId && m.user_id === pId) return true;
+                const mUploader = (m.uploader || '').replace('@', '').toLowerCase().trim();
+                return mUploader === cleanHandle || mUploader === cleanName.toLowerCase() || (mUploader && cleanHandle && mUploader.includes(cleanHandle));
+              });
+
+              // Fallback: If no strict uploader match, show ALL Server 2 media so user sees all uploads
+              const displayList = creatorItems.length > 0 ? creatorItems : ALL_MEDIA_ITEMS;
+
+              const totalViews = displayList.reduce(function(acc, item) { return acc + (parseInt(item.views) || 0); }, 0);
+              const totalLikes = displayList.reduce(function(acc, item) { return acc + (parseInt(item.likes) || 0); }, 0);
+
+              document.getElementById('vaultUploadsCount').innerText = displayList.length;
+              document.getElementById('vaultViewsCount').innerText = totalViews;
+              document.getElementById('vaultLikesCount').innerText = totalLikes;
+
+              renderVaultGridItems(displayList);
+              openCreatorContentVaultModal();
+            } catch (e) {
+              console.error(e);
+              showToast("Error opening creator content vault");
+            }
+          }
+
+          function openAnalyticsHubModal() {
+            try {
+              const el = document.getElementById('analyticsHubModal');
+              if (el) el.style.display = 'flex';
+            } catch (e) {}
+          }
+
+          function closeAnalyticsHubModal() {
+            try {
+              const el = document.getElementById('analyticsHubModal');
+              if (el) el.style.display = 'none';
+            } catch (e) {}
+          }
+
+          function openReportsHubModal() {
+            try {
+              const el = document.getElementById('reportsHubModal');
+              if (el) el.style.display = 'flex';
+              loadReportsList('ALL');
+            } catch (e) {}
+          }
+
+          function closeReportsHubModal() {
+            try {
+              const el = document.getElementById('reportsHubModal');
+              if (el) el.style.display = 'none';
+            } catch (e) {}
+          }
+
+          function openWriteModal() {
+            try {
+              const el = document.getElementById('writeModal');
+              if (el) el.style.display = 'flex';
+            } catch (e) {}
+          }
+
+          function closeWriteModal() {
+            try {
+              const el = document.getElementById('writeModal');
+              if (el) el.style.display = 'none';
+            } catch (e) {}
+          }
+
+          function openUploadModal() {
+            try {
+              const el = document.getElementById('uploadModal');
+              if (el) el.style.display = 'flex';
+            } catch (e) {}
+          }
+
+          function closeUploadModal() {
+            try {
+              const el = document.getElementById('uploadModal');
+              if (el) el.style.display = 'none';
+            } catch (e) {}
+          }
+
+          let ALL_MEDIA_ITEMS = [];
+          try {
+            const b64Str = "${mediaItemsB64}";
+            if (b64Str) {
+              const jsonStr = decodeURIComponent(escape(atob(b64Str)));
+              ALL_MEDIA_ITEMS = JSON.parse(jsonStr);
+            }
+          } catch (e) {
+            console.error("Media items base64 decode error:", e);
+          }
+
           let currentFilter = 'ALL';
           let currentCinemaFile = '';
 
-          function showToast(msg) {
-            const t = document.getElementById('toast');
-            t.innerText = msg;
-            t.style.display = 'block';
-            setTimeout(() => { t.style.display = 'none'; }, 3000);
+          function switchCinemaQuality(qualityVal) {
+            showToast('⚡ Stream Quality Set to ' + qualityVal.toUpperCase() + '!');
+          }
+
+          function openEditProfileModal(pId) {
+            const p = ALL_SERVER_PROFILES[pId] || {};
+            document.getElementById('pProfId').value = pId;
+            document.getElementById('pChannelName').value = p.channel_name || '';
+            document.getElementById('pUsername').value = p.username || '';
+            document.getElementById('pGender').value = p.gender || 'Male';
+            document.getElementById('pCountry').value = p.country || 'India';
+            document.getElementById('pState').value = p.state || '';
+            document.getElementById('pCategory').value = p.category || 'Entertainment';
+            document.getElementById('pVxId').value = p.vx_id_number || 'VX-9082 1120';
+            document.getElementById('pBio').value = p.bio || '';
+            document.getElementById('pMonetizationStatus').value = p.monetization_status || 'not_applied';
+            document.getElementById('pAvatarUrl').value = p.avatar_url || '';
+
+            document.getElementById('editProfileModal').style.display = 'flex';
+          }
+
+          function closeEditProfileModal() {
+            document.getElementById('editProfileModal').style.display = 'none';
+          }
+
+          async function saveProfileChangesFromServer2() {
+            const pId = document.getElementById('pProfId').value;
+            if (!pId) return showToast("Profile ID missing");
+
+            const payload = {
+              id: pId,
+              channel_name: document.getElementById('pChannelName').value.trim(),
+              username: document.getElementById('pUsername').value.trim(),
+              gender: document.getElementById('pGender').value,
+              country: document.getElementById('pCountry').value.trim(),
+              state: document.getElementById('pState').value.trim(),
+              category: document.getElementById('pCategory').value.trim(),
+              vx_id_number: document.getElementById('pVxId').value.trim(),
+              bio: document.getElementById('pBio').value.trim(),
+              monetization_status: document.getElementById('pMonetizationStatus').value,
+              avatar_url: document.getElementById('pAvatarUrl').value.trim()
+            };
+
+            try {
+              const res = await fetch('/api/profiles', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+              });
+              const data = await res.json();
+              if (data.success) {
+                showToast("👤 Profile Metadata Saved Successfully on Server 2!");
+                closeEditProfileModal();
+                await refreshProfilesList();
+              } else {
+                showToast("Save Failed: " + (data.error || 'Unknown error'));
+              }
+            } catch (e) {
+              showToast("Network Error: Could not save profile.");
+            }
           }
 
           function playInCinemaByFilename(encFilename) {
@@ -1648,6 +2556,56 @@ const server = http.createServer((req, res) => {
             const fileName = decodeURIComponent(encFilename);
             const item = ALL_MEDIA_ITEMS.find(m => m.filename === fileName) || { filename: fileName, title: fileName, uploader: '@creator' };
             openRemixModal(item);
+          }
+
+          function openItemStatsModalByFilename(encFilename) {
+            const fileName = decodeURIComponent(encFilename);
+            const item = ALL_MEDIA_ITEMS.find(m => m.filename === fileName) || { filename: fileName, title: fileName, uploader: '@creator', views: 0, likes: 0, sizeMb: '0.1' };
+
+            const setTxt = (id, txt) => { const el = document.getElementById(id); if (el) el.innerText = txt !== undefined && txt !== null ? txt : ''; };
+
+            let iconSymbol = '📹';
+            const cat = (item.category || '').toUpperCase();
+            const ext = (item.filename || '').split('.').pop().toLowerCase();
+
+            if (cat === 'PHOTOS' || cat === 'PHOTO' || ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) {
+              iconSymbol = '🖼️';
+            } else if (cat === 'SOUNDS' || cat === 'AUDIO' || ['mp3', 'wav', 'm4a', 'aac', 'flac'].includes(ext)) {
+              iconSymbol = '🎵';
+            } else if (cat === 'WRITING' || ['txt', 'pdf', 'doc', 'docx'].includes(ext)) {
+              iconSymbol = '✍️';
+            } else if (cat === 'APP_ASSETS' || ['glb', 'gltf', 'fbx', 'obj'].includes(ext)) {
+              iconSymbol = '💎';
+            } else if (cat === 'REMIX' || item.is_remix) {
+              iconSymbol = '🔀';
+            } else if (cat === 'STORY') {
+              iconSymbol = '📸';
+            } else if (cat === 'LIVE') {
+              iconSymbol = '🔴';
+            } else if (cat === 'NEURAL_AI') {
+              iconSymbol = '🧠';
+            } else if (cat === 'REELS') {
+              iconSymbol = '🎬';
+            } else {
+              iconSymbol = '📹';
+            }
+
+            setTxt('statItemIcon', iconSymbol);
+            setTxt('statItemTitle', item.title || item.filename);
+            setTxt('statItemUploader', '👤 Uploaded by ' + (item.uploader || '@admin_creator') + ' (' + (item.category || 'ENTERTAINMENT') + ')');
+            setTxt('statViewsVal', item.views || 0);
+            setTxt('statLikesVal', item.likes || 0);
+            setTxt('statCommentsVal', item.comments ? item.comments.length : 0);
+            setTxt('statScoreVal', item.algorithm_score ? item.algorithm_score : '100.0');
+            setTxt('statWatchVal', (item.algorithm_metrics ? item.algorithm_metrics.avgWatchSec : '5.0') + 's');
+            setTxt('statLoopsVal', item.algorithm_metrics ? item.algorithm_metrics.rewatchLoops : '0');
+            setTxt('statSizeVal', (item.sizeMb || '0.1') + ' MB');
+
+            document.getElementById('itemStatsModal').style.display = 'flex';
+          }
+
+          function closeItemStatsModal() {
+            document.getElementById('itemStatsModal').style.display = 'none';
           }
 
           function openEditModalByFilename(encFilename) {
@@ -1693,6 +2651,17 @@ const server = http.createServer((req, res) => {
             loadCinemaComments(item.filename);
           }
 
+          let cinemaReplyParentId = null;
+
+          function prepareCinemaReply(parentId, targetUser) {
+            cinemaReplyParentId = parentId;
+            const input = document.getElementById('cInputText');
+            if (input) {
+              input.value = '↳ Replying to ' + targetUser + ': ';
+              input.focus();
+            }
+          }
+
           async function loadCinemaComments(fileName) {
             try {
               const res = await fetch('/api/comments?file=' + encodeURIComponent(fileName));
@@ -1713,19 +2682,63 @@ const server = http.createServer((req, res) => {
                 if (list.length === 0) {
                   listContainer.innerHTML = '<div style="color:#64748B; font-size:11px; text-align:center; padding:12px;">No comments yet. Post an official admin comment below!</div>';
                 } else {
-                  listContainer.innerHTML = list.map(c => \`
-                    <div class="comment-item">
-                      <div class="comment-user">
-                        <span>👤 \${c.user || '@viewer'}</span>
-                        <div>
-                          <span style="color:#64748B; font-weight:600; font-size:9px; margin-right:6px;">\${c.created_at ? new Date(c.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : ''}</span>
-                          <button class="comment-del-btn" onclick="deleteComment('\${c.id}')">🗑</button>
-                        </div>
-                      </div>
-                      <div class="comment-text">\${c.text || ''}</div>
-                      \${renderCommentAttachmentHtml(c)}
-                    </div>
-                  \`).join('');
+                  // 2-Pass Nested Replies Thread Processor
+                  const isReplyCmt = (c) => {
+                    if (c.parent_id || c.parentId) return true;
+                    const txt = String(c.text || c.content || '');
+                    return txt.includes('↳ Replying to') || txt.includes('Replying to');
+                  };
+
+                  const topLevelCmts = list.filter(c => !isReplyCmt(c));
+                  const replyCmts = list.filter(c => isReplyCmt(c));
+                  const repliesMap = {};
+
+                  replyCmts.forEach(c => {
+                    let pId = c.parent_id || c.parentId;
+                    if (!pId || !topLevelCmts.some(p => p.id === pId)) {
+                      const txt = String(c.text || c.content || '');
+                      const match = txt.match(/Replying to\s+@?([a-zA-Z0-9_\-]+)/i);
+                      if (match && match[1]) {
+                        const targetUser = match[1].toLowerCase();
+                        const parent = topLevelCmts.find(p => String(p.user || '').toLowerCase().replace('@', '') === targetUser);
+                        if (parent) pId = parent.id;
+                      }
+                    }
+
+                    if (pId) {
+                      if (!repliesMap[pId]) repliesMap[pId] = [];
+                      repliesMap[pId].push(c);
+                    }
+                  });
+
+                  listContainer.innerHTML = topLevelCmts.map(function(c) {
+                    var replies = repliesMap[c.id] || [];
+                    var repliesHtml = replies.map(function(r) {
+                      return '<div class="comment-reply-item" style="margin-left:20px; border-left:2px solid #A855F7; padding-left:10px; margin-top:8px; background:rgba(168, 85, 247, 0.08); padding:8px; border-radius:8px;">' +
+                        '<div class="comment-user">' +
+                          '<span style="color:#00F2FE;">↳ 👤 ' + (r.user || '@viewer') + '</span>' +
+                          '<button class="comment-del-btn" onclick="deleteComment(&quot;' + r.id + '&quot;)">🗑</button>' +
+                        '</div>' +
+                        '<div class="comment-text" style="font-size:11px; color:#CBD5E1;">' + (r.text || '') + '</div>' +
+                      '</div>';
+                    }).join('');
+
+                    var timeStr = c.created_at ? new Date(c.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '';
+
+                    return '<div class="comment-item">' +
+                      '<div class="comment-user">' +
+                        '<span>👤 ' + (c.user || '@viewer') + '</span>' +
+                        '<div>' +
+                          '<span style="color:#64748B; font-weight:600; font-size:9px; margin-right:6px;">' + timeStr + '</span>' +
+                          '<button class="comment-reply-btn" style="background:rgba(56,189,248,0.15); color:#38BDF8; border:1px solid #38BDF8; border-radius:6px; padding:2px 6px; font-size:9px; margin-right:4px; cursor:pointer;" onclick="prepareCinemaReply(&quot;' + c.id + '&quot;, &quot;' + (c.user || '@viewer') + '&quot;)">💬 Reply</button>' +
+                          '<button class="comment-del-btn" onclick="deleteComment(&quot;' + c.id + '&quot;)">🗑</button>' +
+                        '</div>' +
+                      '</div>' +
+                      '<div class="comment-text">' + (c.text || '') + '</div>' +
+                      renderCommentAttachmentHtml(c) +
+                      repliesHtml +
+                    '</div>';
+                  }).join('');
                 }
               }
             } catch (e) {
@@ -1742,11 +2755,18 @@ const server = http.createServer((req, res) => {
               const res = await fetch('/api/comments', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ filename: currentCinemaFile, user: '@admin_studio', text: text, type: 'text' })
+                body: JSON.stringify({
+                  filename: currentCinemaFile,
+                  user: '@admin_studio',
+                  text: text,
+                  type: 'text',
+                  parent_id: cinemaReplyParentId
+                })
               });
               const data = await res.json();
               if (data.success) {
                 input.value = '';
+                cinemaReplyParentId = null;
                 loadCinemaComments(currentCinemaFile);
                 showToast('💬 Admin Comment Posted!');
               }
@@ -1849,15 +2869,6 @@ const server = http.createServer((req, res) => {
             }
           }
 
-          function openReportsHubModal() {
-            document.getElementById('reportsHubModal').style.display = 'flex';
-            loadReportsList('ALL');
-          }
-
-          function closeReportsHubModal() {
-            document.getElementById('reportsHubModal').style.display = 'none';
-          }
-
           let currentReportFilter = 'ALL';
 
           async function loadReportsList(statusFilter = currentReportFilter, btn) {
@@ -1876,12 +2887,11 @@ const server = http.createServer((req, res) => {
                 // Dynamic update of tab counts
                 const tabGroup = document.getElementById('reportTabGroup');
                 if (tabGroup) {
-                  tabGroup.innerHTML = \`
-                    <button class="tab-btn \${statusFilter === 'ALL' ? 'active' : ''}" onclick="loadReportsList('ALL', this)">ALL REPORTS (\${allReports.length})</button>
-                    <button class="tab-btn \${statusFilter === 'pending' ? 'active' : ''}" onclick="loadReportsList('pending', this)">🚨 PENDING (\${pendingCount})</button>
-                    <button class="tab-btn \${statusFilter === 'resolved' ? 'active' : ''}" onclick="loadReportsList('resolved', this)">✅ RESOLVED (\${resolvedCount})</button>
-                    <button class="tab-btn \${statusFilter === 'dismissed' ? 'active' : ''}" onclick="loadReportsList('dismissed', this)">🚫 DISMISS (\${dismissedCount})</button>
-                  \`;
+                  tabGroup.innerHTML =
+                    '<button class="tab-btn ' + (statusFilter === 'ALL' ? 'active' : '') + '" onclick="loadReportsList(&quot;ALL&quot;, this)">ALL REPORTS (' + allReports.length + ')</button>' +
+                    '<button class="tab-btn ' + (statusFilter === 'pending' ? 'active' : '') + '" onclick="loadReportsList(&quot;pending&quot;, this)">🚨 PENDING (' + pendingCount + ')</button>' +
+                    '<button class="tab-btn ' + (statusFilter === 'resolved' ? 'active' : '') + '" onclick="loadReportsList(&quot;resolved&quot;, this)">✅ RESOLVED (' + resolvedCount + ')</button>' +
+                    '<button class="tab-btn ' + (statusFilter === 'dismissed' ? 'active' : '') + '" onclick="loadReportsList(&quot;dismissed&quot;, this)">🚫 DISMISS (' + dismissedCount + ')</button>';
                 }
 
                 let list = allReports;
@@ -1890,14 +2900,13 @@ const server = http.createServer((req, res) => {
                 }
 
                 if (list.length === 0) {
-                  container.innerHTML = \`
-                    <div style="text-align:center; padding:35px 20px; background:#03030A; border-radius:14px; border:1px solid #1E1E38;">
-                      <div style="font-size:36px; margin-bottom:10px;">📋</div>
-                      <div style="color:#F1F5F9; font-size:13px; font-weight:bold; margin-bottom:6px;">No reports found under "\${statusFilter.toUpperCase()}" status filter</div>
-                      <div style="color:#64748B; font-size:11px; margin-bottom:15px;">Click below to log a test signal audit and test resolving/dismissing live!</div>
-                      <button onclick="createDemoReportSignal()" class="upload-btn" style="margin:0 auto; padding:8px 16px; font-size:11px;">⚡ LOG TEST AUDIT SIGNAL</button>
-                    </div>
-                  \`;
+                  container.innerHTML =
+                    '<div style="text-align:center; padding:35px 20px; background:#03030A; border-radius:14px; border:1px solid #1E1E38;">' +
+                      '<div style="font-size:36px; margin-bottom:10px;">📋</div>' +
+                      '<div style="color:#F1F5F9; font-size:13px; font-weight:bold; margin-bottom:6px;">No reports found under "' + statusFilter.toUpperCase() + '" status filter</div>' +
+                      '<div style="color:#64748B; font-size:11px; margin-bottom:15px;">Click below to log a test signal audit and test resolving/dismissing live!</div>' +
+                      '<button onclick="createDemoReportSignal()" class="upload-btn" style="margin:0 auto; padding:8px 16px; font-size:11px;">⚡ LOG TEST AUDIT SIGNAL</button>' +
+                    '</div>';
                 } else {
                   container.innerHTML = list.map(r => {
                     const rawFileKey = r.vx_number || r.filename || r.content_id || r.postId || r.post_id || r.signalId || r.file || '';
@@ -1909,7 +2918,7 @@ const server = http.createServer((req, res) => {
                     const realVxDisplay = cleanName || rawFileKey || 'VX_Media_File';
                     const realCategory = r.category || fileMeta.category || 'ENTERTAINMENT';
 
-                    const mediaUrl = r.media_url || \`http://192.168.31.39:\${PORT}/\${encodeURIComponent(cleanName)}\`;
+                    const mediaUrl = r.media_url || ('http://' + SERVER_IP + ':' + PORT + '/' + encodeURIComponent(cleanName));
 
                     const isVideo = mediaUrl.match(/\.(mp4|mov|avi|mkv|webm)$/i);
                     const isPhoto = mediaUrl.match(/\.(jpg|jpeg|png|gif|webp)$/i);
@@ -1925,14 +2934,15 @@ const server = http.createServer((req, res) => {
                     let evidenceHtml = '';
                     const evidenceList = r.evidence_photos || (r.evidence_url ? [r.evidence_url] : (r.evidence_photo ? [r.evidence_photo] : []));
                     if (Array.isArray(evidenceList) && evidenceList.length > 0) {
-                      evidenceHtml = \`
-                        <div style="margin:8px 0; background:#080811; padding:10px; border-radius:10px; border:1px solid #1E1E38;">
-                          <div style="color:#38BDF8; font-weight:bold; font-size:10px; margin-bottom:6px;">📸 REPORTER ATTACHED EVIDENCE SCREENSHOTS (\${evidenceList.length}):</div>
-                          <div style="display:flex; gap:8px; overflow-x:auto;">
-                            \${evidenceList.map(pUrl => \`<img src="\${pUrl}" style="max-width:240px; max-height:180px; border-radius:8px; object-fit:contain; border:1px solid #1E1E38;" />\`).join('')}
-                          </div>
-                        </div>
-                      \`;
+                      var evImgs = evidenceList.map(function(pUrl) {
+                        return '<img src="' + pUrl + '" style="max-width:240px; max-height:180px; border-radius:8px; object-fit:contain; border:1px solid #1E1E38;" />';
+                      }).join('');
+
+                      evidenceHtml =
+                        '<div style="margin:8px 0; background:#080811; padding:10px; border-radius:10px; border:1px solid #1E1E38;">' +
+                          '<div style="color:#38BDF8; font-weight:bold; font-size:10px; margin-bottom:6px;">📸 REPORTER ATTACHED EVIDENCE SCREENSHOTS (' + evidenceList.length + '):</div>' +
+                          '<div style="display:flex; gap:8px; overflow-x:auto;">' + evImgs + '</div>' +
+                        '</div>';
                     }
 
                     // Extract Creator Details
@@ -1948,41 +2958,47 @@ const server = http.createServer((req, res) => {
                     // Extract Details / Log
                     const detailsLog = r.description || r.evidence_message || r.details || r.log || r.reason || 'Flagged signal audit logged by user.';
 
-                    return \`
-                      <div class="report-item-card" style="background:#03030A; border:1px solid #1E1E38; border-radius:14px; padding:16px; margin-bottom:12px;">
-                        <div class="report-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; border-bottom:1px solid #14142B; padding-bottom:6px;">
-                          <span class="report-reason" style="color:#F43F5E; font-weight:900; font-size:13px;">🚨 SIGNAL AUDIT: \${r.reason || 'CONTENT_FLAGGED'}</span>
-                          <span class="report-badge \${r.status === 'pending' ? 'badge-pending' : 'badge-resolved'}">\${r.status || 'pending'}</span>
-                        </div>
+                    var resolveBtn = r.status !== 'resolved'
+                      ? '<button onclick="updateReportStatus(&quot;' + r.id + '&quot;, &quot;resolved&quot;)" class="act-btn act-play" style="padding:8px 12px; font-size:10px;">✅ RESOLVE AUDIT</button>'
+                      : '<span style="color:#22C55E; font-weight:bold; font-size:10px; padding:4px 8px; background:rgba(34,197,94,0.15); border-radius:6px;">✅ RESOLVED</span>';
 
-                        <div style="background:#14142B; color:#38BDF8; padding:4px 10px; border-radius:6px; font-size:10px; font-weight:800; display:inline-block; margin-bottom:8px; border:1px solid rgba(56,189,248,0.3);">
-                          📌 VX NUMBER / FILE: \${realVxDisplay} (\${realCategory})
-                        </div>
+                    var dismissBtn = r.status !== 'dismissed'
+                      ? '<button onclick="updateReportStatus(&quot;' + r.id + '&quot;, &quot;dismissed&quot;)" class="act-btn act-edit" style="padding:8px 12px; font-size:10px;">🚫 DISMISS SIGNAL</button>'
+                      : '<span style="color:#64748B; font-weight:bold; font-size:10px; padding:4px 8px; background:rgba(255,255,255,0.05); border-radius:6px;">🚫 DISMISSED</span>';
 
-                        \${mediaPreviewHtml}
-                        \${evidenceHtml}
+                    return '<div class="report-item-card" style="background:#03030A; border:1px solid #1E1E38; border-radius:14px; padding:16px; margin-bottom:12px;">' +
+                      '<div class="report-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; border-bottom:1px solid #14142B; padding-bottom:6px;">' +
+                        '<span class="report-reason" style="color:#F43F5E; font-weight:900; font-size:13px;">🚨 SIGNAL AUDIT: ' + (r.reason || 'CONTENT_FLAGGED') + '</span>' +
+                        '<span class="report-badge ' + (r.status === 'pending' ? 'badge-pending' : 'badge-resolved') + '">' + (r.status || 'pending') + '</span>' +
+                      '</div>' +
 
-                        <div style="font-size:11px; color:#94A3B8; margin-bottom:4px; display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
-                          <span>👤 <b>Target Creator:</b> <span style="color:#C084FC; font-weight:bold;">\${creatorName}</span> (ID: \${creatorId})</span>
-                          <span style="font-size:9px; font-weight:900; padding:2px 6px; border-radius:4px; background:#EAB308; color:#000;">RISK: \${(r.risk_level || 'medium').toUpperCase()}</span>
-                        </div>
+                      '<div style="background:#14142B; color:#38BDF8; padding:4px 10px; border-radius:6px; font-size:10px; font-weight:800; display:inline-block; margin-bottom:8px; border:1px solid rgba(56,189,248,0.3);">' +
+                        '📌 VX NUMBER / FILE: ' + realVxDisplay + ' (' + realCategory + ')' +
+                      '</div>' +
 
-                        <div style="font-size:11px; color:#94A3B8; margin-bottom:6px; display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
-                          <span>🚩 <b>Reported By:</b> <span style="color:#38BDF8; font-weight:bold;">\${reporterName}</span> (ID: \${reporterId})</span>
-                          <span style="color:#64748B;">📅 \${r.created_at ? new Date(r.created_at).toLocaleString() : 'Just now'}</span>
-                        </div>
+                      mediaPreviewHtml +
+                      evidenceHtml +
 
-                        <div style="background:#080811; padding:8px 10px; border-radius:8px; border:1px solid #14142B; margin:8px 0; font-size:11px; color:#F1F5F9; line-height:1.4;">
-                          <b style="color:#F43F5E;">Audit Details:</b> \${detailsLog}
-                        </div>
+                      '<div style="font-size:11px; color:#94A3B8; margin-bottom:4px; display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">' +
+                        '<span>👤 <b>Target Creator:</b> <span style="color:#C084FC; font-weight:bold;">' + creatorName + '</span> (ID: ' + creatorId + ')</span>' +
+                        '<span style="font-size:9px; font-weight:900; padding:2px 6px; border-radius:4px; background:#EAB308; color:#000;">RISK: ' + (r.risk_level || 'medium').toUpperCase() + '</span>' +
+                      '</div>' +
 
-                        <div style="display:flex; gap:8px; margin-top:10px;">
-                          \${r.status !== 'resolved' ? \`<button onclick="updateReportStatus('\${r.id}', 'resolved')" class="act-btn act-play" style="padding:8px 12px; font-size:10px;">✅ RESOLVE AUDIT</button>\` : '<span style="color:#22C55E; font-weight:bold; font-size:10px; padding:4px 8px; background:rgba(34,197,94,0.15); border-radius:6px;">✅ RESOLVED</span>'}
-                          \${r.status !== 'dismissed' ? \`<button onclick="updateReportStatus('\${r.id}', 'dismissed')" class="act-btn act-edit" style="padding:8px 12px; font-size:10px;">🚫 DISMISS SIGNAL</button>\` : '<span style="color:#64748B; font-weight:bold; font-size:10px; padding:4px 8px; background:rgba(255,255,255,0.05); border-radius:6px;">🚫 DISMISSED</span>'}
-                          <button onclick="deleteFile('\${encodeURIComponent(realVxDisplay)}')" class="act-btn act-del" style="padding:8px 12px; font-size:10px;">🗑 DELETE FILE FROM DISK</button>
-                        </div>
-                      </div>
-                    \`;
+                      '<div style="font-size:11px; color:#94A3B8; margin-bottom:6px; display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">' +
+                        '<span>🚩 <b>Reported By:</b> <span style="color:#38BDF8; font-weight:bold;">' + reporterName + '</span> (ID: ' + reporterId + ')</span>' +
+                        '<span style="color:#64748B;">📅 ' + (r.created_at ? new Date(r.created_at).toLocaleString() : 'Just now') + '</span>' +
+                      '</div>' +
+
+                      '<div style="background:#080811; padding:8px 10px; border-radius:8px; border:1px solid #14142B; margin:8px 0; font-size:11px; color:#F1F5F9; line-height:1.4;">' +
+                        '<b style="color:#F43F5E;">Audit Details:</b> ' + detailsLog +
+                      '</div>' +
+
+                      '<div style="display:flex; gap:8px; margin-top:10px;">' +
+                        resolveBtn +
+                        dismissBtn +
+                        '<button onclick="deleteFile(&quot;' + encodeURIComponent(realVxDisplay) + '&quot;)" class="act-btn act-del" style="padding:8px 12px; font-size:10px;">🗑 DELETE FILE FROM DISK</button>' +
+                      '</div>' +
+                    '</div>';
                   }).join('');
                 }
               }
@@ -2034,6 +3050,10 @@ const server = http.createServer((req, res) => {
           }
 
           function setFilter(type, btn) {
+            if (type === 'PROFILES') {
+              openProfilesHubModal();
+              return;
+            }
             currentFilter = type;
             document.querySelectorAll('.filter-tabs .tab-btn').forEach(b => b.classList.remove('active'));
             if (btn) btn.classList.add('active');
@@ -2065,7 +3085,7 @@ const server = http.createServer((req, res) => {
               } else if (currentFilter === 'NEURAL_AI') {
                 matchesType = cardType === 'NEURAL_AI' || cardCat === 'NEURAL_AI';
               } else if (currentFilter === 'VIDEO') {
-                matchesType = cardType === 'VIDEO' || cardCat === 'ENTERTAINMENT' || cardCat === 'VIDEO' || cardCat === 'VLOGS' || cardCat === 'GAMING';
+                matchesType = (cardType === 'VIDEO' || cardCat === 'ENTERTAINMENT' || cardCat === 'VIDEO' || cardCat === 'VLOGS' || cardCat === 'GAMING') && cardType !== 'STORY' && cardCat !== 'STORY';
               } else if (currentFilter === 'PHOTO') {
                 matchesType = cardType === 'PHOTO' || cardCat === 'PHOTO' || cardCat === 'PHOTOS';
               } else {
@@ -2196,7 +3216,7 @@ const server = http.createServer((req, res) => {
 
             setVal('editFilename', item.filename || '');
             setTxt('editFilenameTxt', item.filename || '');
-            setTxt('editStreamUrlTxt', 'http://192.168.31.39:8080/' + encodeURIComponent(item.filename || ''));
+            setTxt('editStreamUrlTxt', 'http://' + window.location.hostname + ':8080/' + encodeURIComponent(item.filename || ''));
             setVal('editTitle', item.title || '');
             setVal('editUploader', item.uploader || '@admin_creator');
             setVal('editCategory', item.category || 'ENTERTAINMENT');
@@ -2429,7 +3449,7 @@ const server = http.createServer((req, res) => {
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     console.log('==========================================================');
-    console.log(`🚀 VOEXI Media Server is ALREADY RUNNING & LIVE at http://192.168.31.39:${PORT}`);
+    console.log(`🚀 VOEXI Media Server is ALREADY RUNNING & LIVE at http://${SERVER_IP}:${PORT}`);
     console.log('==========================================================');
   } else {
     console.error('Server error:', err);
@@ -2438,7 +3458,7 @@ server.on('error', (err) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log('==========================================================');
-  console.log(`🚀 VOEXI Media Server LIVE at http://192.168.31.39:${PORT}`);
+  console.log(`🚀 VOEXI Media Server LIVE at http://${SERVER_IP}:${PORT}`);
   console.log(`📁 Scanning Storage Directories: ${getStorageDirectories().join(', ')}`);
   console.log('==========================================================');
 });

@@ -1,10 +1,11 @@
-import React, { memo } from 'react';
+import React, { memo, useMemo } from 'react';
 import { StyleSheet, View, Text, Image, Platform, Animated, TouchableOpacity, Alert } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { getThemeById, CardTheme } from '../constants/cardThemes';
+import { extractColorFromUri } from '../lib/colorExtractor';
 
 const CARD_HEIGHT = 200;
 
@@ -23,15 +24,22 @@ interface Props {
   isDirty?: boolean;
   dirtLevel?: number;
   onPress?: () => void;
+  onLongPress?: () => void;
 }
 
-function VXIdentityCard({ profile, themeId = 'default', onPress }: Props) {
+function VXIdentityCard({ profile, themeId = 'default', onPress, onLongPress }: Props) {
   const theme: CardTheme = getThemeById(themeId);
   const customBgUri = profile?.card_background_uri || profile?.custom_bg_uri;
+  const blendGlow = profile?.blend_theme_glow === true || profile?.blend_theme_glow === 'true';
 
   const handleTap = () => {
     if (onPress) onPress();
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    else copyIdToClipboard();
+  };
+
+  const handleLongPress = () => {
+    if (onLongPress) onLongPress();
+    else copyIdToClipboard();
   };
 
   const copyIdToClipboard = async () => {
@@ -74,16 +82,50 @@ function VXIdentityCard({ profile, themeId = 'default', onPress }: Props) {
     return () => animation.stop();
   }, []);
 
+  // Auto Color from Background Extractor
+  const extractedPalette = useMemo(() => {
+    if (customBgUri) {
+      if (profile?.extracted_primary_color && profile?.extracted_accent_color) {
+        return {
+          primary: profile.extracted_primary_color,
+          accent: profile.extracted_accent_color,
+          contrastText: '#FFFFFF',
+        };
+      }
+      return extractColorFromUri(customBgUri, theme);
+    }
+    return {
+      primary: theme.badgeColors[0],
+      accent: theme.badgeColors[1] || theme.glowColor,
+      contrastText: '#FFFFFF',
+    };
+  }, [customBgUri, profile?.extracted_primary_color, profile?.extracted_accent_color, theme]);
+
+  const dynamicBadgeColors: [string, string, ...string[]] = customBgUri
+    ? [extractedPalette.primary, extractedPalette.accent]
+    : (theme.badgeColors as [string, string, ...string[]]);
+
+  const dynamicChipColor = customBgUri ? extractedPalette.primary : theme.chipColor;
+  const dynamicBorderColor = customBgUri ? (extractedPalette.primary + '66') : (theme.borderColor + '55');
+  const dynamicGlowColor = customBgUri ? extractedPalette.primary : theme.glowColor;
+
   return (
     <View style={styles.cardContainer}>
       <TouchableOpacity
         activeOpacity={0.92}
         onPress={handleTap}
+        onLongPress={handleLongPress}
         style={{ flex: 1 }}
       >
         <LinearGradient
-          colors={theme.colors as [string, string, ...string[]]}
-          style={[styles.profileCard, { borderColor: theme.borderColor + '55' }]}
+          colors={customBgUri && !blendGlow ? ['#000000', '#0a0a10'] : (theme.colors as [string, string, ...string[]])}
+          style={[
+            styles.profileCard,
+            {
+              borderWidth: customBgUri ? 0 : 1.5,
+              borderColor: dynamicBorderColor,
+            }
+          ]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
         >
@@ -99,18 +141,18 @@ function VXIdentityCard({ profile, themeId = 'default', onPress }: Props) {
           {/* DARK GRADIENT OVERLAY FOR CRISP TEXT READABILITY */}
           {customBgUri && (
             <LinearGradient
-              colors={['rgba(0,0,0,0.35)', 'rgba(0,0,0,0.85)']}
+              colors={blendGlow ? ['rgba(0,0,0,0.15)', 'rgba(0,0,0,0.65)'] : ['rgba(0,0,0,0.2)', 'rgba(0,0,0,0.75)']}
               style={StyleSheet.absoluteFill}
             />
           )}
 
-          {!customBgUri && <View style={styles.designLayer}>{renderEffectLayer()}</View>}
-          <Animated.View style={[styles.cardGlow, { backgroundColor: theme.glowColor, opacity: pulseAnim }]} />
+          {(!customBgUri || blendGlow) && <View style={styles.designLayer}>{renderEffectLayer()}</View>}
+          {(!customBgUri || blendGlow) && <Animated.View style={[styles.cardGlow, { backgroundColor: dynamicGlowColor, opacity: pulseAnim }]} />}
 
           <View style={styles.cardTop}>
             <View style={[styles.avatarContainer, { borderColor: theme.textColor + '44' }]}>
               <Image
-                source={{ uri: profile?.avatar_url || 'https://via.placeholder.com/150' }}
+                source={{ uri: profile?.custom_logo_url || profile?.logo_url || profile?.avatar_url || 'https://via.placeholder.com/150' }}
                 style={styles.avatar}
                 resizeMode="cover"
               />
@@ -127,8 +169,15 @@ function VXIdentityCard({ profile, themeId = 'default', onPress }: Props) {
                 @{profile?.username || 'username'}
               </Text>
               <View style={styles.badgeRow}>
-                <LinearGradient colors={theme.badgeColors as [string, string, ...string[]]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.categoryBadge}>
-                  <Text style={styles.categoryText}>{profile?.category || profile?.channel_category || 'BROADCASTER'}</Text>
+                <LinearGradient
+                  colors={dynamicBadgeColors}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.categoryBadge}
+                >
+                  <Text style={[styles.categoryText, customBgUri && { color: extractedPalette.contrastText }]}>
+                    {profile?.category || profile?.channel_category || 'BROADCASTER'}
+                  </Text>
                 </LinearGradient>
               </View>
             </View>
@@ -138,12 +187,12 @@ function VXIdentityCard({ profile, themeId = 'default', onPress }: Props) {
             </View>
           </View>
 
-          <View style={[styles.cardDivider, { backgroundColor: theme.textColor + '15' }]} />
+          <View style={[styles.cardDivider, { backgroundColor: customBgUri ? 'rgba(255, 255, 255, 0.12)' : theme.textColor + '15' }]} />
 
           <View style={styles.cardBottom}>
             <View style={styles.idBox}>
               <Text style={[styles.idLabel, { color: theme.textColor, opacity: 0.6 }]}>
-                {profile?.custom_label ? profile.custom_label.toUpperCase() : 'VOEXI IDENTITY CARD'}
+                VOEXI IDENTITY CARD
               </Text>
               <TouchableOpacity onLongPress={copyIdToClipboard} activeOpacity={0.8}>
                  <Text style={[styles.idValue, { color: theme.textColor }]} numberOfLines={1}>
@@ -152,7 +201,7 @@ function VXIdentityCard({ profile, themeId = 'default', onPress }: Props) {
               </TouchableOpacity>
             </View>
             <View style={styles.chipIcon}>
-               <MaterialCommunityIcons name="integrated-circuit-chip" size={28} color={theme.chipColor} />
+               <MaterialCommunityIcons name="integrated-circuit-chip" size={28} color={dynamicChipColor} />
             </View>
           </View>
         </LinearGradient>
@@ -182,7 +231,7 @@ const styles = StyleSheet.create({
   badgeRow: { flexDirection: 'row', marginTop: 6 },
   categoryBadge: { paddingHorizontal: 9, paddingVertical: 3, borderRadius: 6 },
   categoryText: { color: '#fff', fontSize: 9, fontWeight: '900', letterSpacing: 0.5 },
-  vLogoMini: { width: 28, height: 28, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.05)', justifyContent: 'center', alignItems: 'center', borderWidth: 1 },
+  vLogoMini: { width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.08)', justifyContent: 'center', alignItems: 'center', borderWidth: 1.5, overflow: 'hidden' },
   vLetterMini: { fontSize: 14, fontWeight: '900' },
   cardDivider: { height: 1, marginVertical: 12, zIndex: 5 },
   cardBottom: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', zIndex: 5 },

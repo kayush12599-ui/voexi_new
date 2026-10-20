@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Alert, KeyboardAvoidingView, Platform, ScrollView, Image, Pressable } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, Alert, KeyboardAvoidingView, Platform, ScrollView, Image, Pressable, ActivityIndicator, TextInput } from 'react-native';
 import { useRouter, Link, useLocalSearchParams } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import { VOEXITheme } from '../../constants/theme';
@@ -16,8 +16,6 @@ import * as WebBrowser from 'expo-web-browser';
 import { createURL, parse } from 'expo-linking';
 import * as Haptics from 'expo-haptics';
 
-WebBrowser.maybeCompleteAuthSession();
-
 /**
  * VOEXI SIGNUP WITH MANDATORY INLINE EMAIL OTP VERIFICATION FIRST
  */
@@ -26,6 +24,10 @@ export default function Signup() {
   const { initialEmail } = useLocalSearchParams<{ initialEmail?: string }>();
   const [loading, setLoading] = useState(false);
   const [image, setImage] = useState<string | null>(null);
+
+  useEffect(() => {
+    try { WebBrowser.maybeCompleteAuthSession(); } catch (e) {}
+  }, []);
 
   // Email Verification State
   const [email, setEmail] = useState('');
@@ -85,16 +87,41 @@ export default function Signup() {
     if (Haptics) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
 
     try {
+      // 🛡️ HIGH SECURITY CHECK: Verify if email is already registered in VOEXI
+      const isAlreadyReg = await AuthService.isEmailAlreadyRegistered(trimmedEmail);
+      if (isAlreadyReg) {
+        if (Haptics) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+        return Alert.alert(
+          "EMAIL ALREADY REGISTERED ❌",
+          `The email "${trimmedEmail}" is already linked to an existing VOEXI account.\n\nPlease tap LOGIN NOW to sign into your account, or use a different email address to register.`,
+          [
+            { text: "LOGIN NOW", onPress: () => router.push('/(auth)/login') },
+            { text: "USE DIFFERENT EMAIL", style: "cancel" }
+          ]
+        );
+      }
+
       // Generate 6-digit OTP code
       const code = Math.floor(100000 + Math.random() * 900000).toString();
       setGeneratedOtp(code);
 
-      // Send live email via Resend API Key
-      await EmailService.sendVerificationEmail(
+      // Open OTP input UI immediately
+      setOtpSent(true);
+      setCooldown(60);
+      setAttemptsLeft(5);
+
+      // Send live email via Resend API Key in background
+      EmailService.sendVerificationEmail(
         trimmedEmail,
         code,
         'VOEXI Account Signup Verification OTP'
-      );
+      ).then((res) => {
+        if (!res.success) {
+          console.warn('[Resend Email Notice]:', res.error);
+        }
+      }).catch((e) => {
+        console.warn('[Resend Email Error]:', e.message);
+      });
 
       // Backup Supabase Auth Trigger
       supabase.auth.signInWithOtp({
@@ -103,10 +130,10 @@ export default function Signup() {
       }).catch(() => {});
 
       if (Haptics) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      Alert.alert('Verification Code Dispatched 📧', `A 6-digit verification code was sent to ${trimmedEmail} via Resend Email Service!`);
-      setOtpSent(true);
-      setCooldown(60);
-      setAttemptsLeft(5);
+      Alert.alert(
+        'Verification Code Sent 📧',
+        `A 6-digit verification code has been sent to your email inbox (${trimmedEmail}). Please enter the 6-digit code below to verify.`
+      );
     } catch (e: any) {
       Alert.alert('Send OTP Failed', e.message || 'Unable to send verification code.');
     } finally {
@@ -131,7 +158,7 @@ export default function Signup() {
     if (Haptics) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
 
     try {
-      if (trimmedOtp === generatedOtp || trimmedOtp === '123456') {
+      if (trimmedOtp === generatedOtp) {
         if (Haptics) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
         setIsEmailVerified(true);
         Alert.alert('Email Verified ✓', 'Your email address has been successfully verified! Complete your station profile details below.');
@@ -195,6 +222,30 @@ export default function Signup() {
 
     try {
       const trimmedUsername = username.trim().toLowerCase();
+
+      // 🛡️ HIGH SECURITY CHECK: Duplicate Email Check
+      const isEmailReg = await AuthService.isEmailAlreadyRegistered(trimmedEmail);
+      if (isEmailReg) {
+        if (Haptics) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+        return Alert.alert(
+          "EMAIL ALREADY REGISTERED ❌",
+          `The email "${trimmedEmail}" is already registered. Please login to your existing account.`,
+          [
+            { text: "LOGIN NOW", onPress: () => router.push('/(auth)/login') },
+            { text: "CANCEL", style: "cancel" }
+          ]
+        );
+      }
+
+      // 🛡️ HIGH SECURITY CHECK: Duplicate Username Check
+      const isUserTaken = await AuthService.isUsernameTaken(trimmedUsername);
+      if (isUserTaken) {
+        if (Haptics) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+        return Alert.alert(
+          "USERNAME ALREADY TAKEN ❌",
+          `The username "@${trimmedUsername}" is already claimed by another station. Please choose a unique username.`
+        );
+      }
 
       // Create Supabase User or Update
       const { data: updateData, error: updateError } = await supabase.auth.signUp({
@@ -285,7 +336,7 @@ export default function Signup() {
   return (
     <SafeAreaView style={styles.container}>
       <LinearGradient colors={['#100', '#000']} style={StyleSheet.absoluteFill} />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, width: '100%', minHeight: '100%' }}>
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
 
           <View style={styles.header}>
@@ -317,9 +368,10 @@ export default function Signup() {
                 <>
                   {!otpSent ? (
                     <TouchableOpacity
-                      style={[styles.emitBtn, (!email.trim() || loading) && { opacity: 0.5 }]}
+                      style={[styles.emitBtn, loading && { opacity: 0.5 }]}
                       onPress={handleSendOtp}
-                      disabled={loading || !email.trim()}
+                      disabled={loading}
+                      activeOpacity={0.7}
                     >
                       <LinearGradient colors={['#A855F7', '#6366F1']} style={styles.emitGrad}>
                         {loading ? (
@@ -327,7 +379,7 @@ export default function Signup() {
                         ) : (
                           <>
                             <Ionicons name="paper-plane" size={16} color="#fff" />
-                            <Text style={styles.emitBtnText}>EMIT VERIFICATION CODE</Text>
+                            <Text style={styles.emitBtnText}>SEND VERIFICATION CODE</Text>
                           </>
                         )}
                       </LinearGradient>
@@ -360,7 +412,7 @@ export default function Signup() {
                         disabled={cooldown > 0 || loading}
                       >
                         <Text style={styles.reemitText}>
-                          {cooldown > 0 ? `RE-EMIT CODE IN ${cooldown}s` : 'RE-EMIT CODE'}
+                          {cooldown > 0 ? `RESEND CODE IN ${cooldown}s` : 'RESEND CODE'}
                         </Text>
                       </TouchableOpacity>
                     </View>
@@ -376,8 +428,8 @@ export default function Signup() {
               )}
             </View>
 
-            {/* STEP 2: PROFILE & STATION DETAILS (ENABLED AFTER EMAIL VERIFIED) */}
-            <View style={[{ marginTop: 20 }, !isEmailVerified && { opacity: 0.4 }]} pointerEvents={isEmailVerified ? 'auto' : 'none'}>
+            {/* STEP 2: PROFILE & STATION DETAILS */}
+            <View style={{ marginTop: 20 }}>
               <Text style={styles.stepTitle}>2. STATION DETAILS</Text>
 
               <NeonInput label="STATION TITLE / CHANNEL NAME" placeholder="e.g. Neon Vibe Channel" value={form.channelName} onChangeText={(val) => setForm(f => ({ ...f, channelName: val }))} icon="radio-outline" />
@@ -443,8 +495,8 @@ export default function Signup() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
-  scrollContent: { padding: 20, paddingTop: 40, alignItems: 'center' },
+  container: { flex: 1, width: '100%', minHeight: '100vh', backgroundColor: '#000' },
+  scrollContent: { padding: 20, paddingTop: 40, alignItems: 'center', width: '100%', maxWidth: 520, alignSelf: 'center' },
   header: { alignItems: 'center', marginBottom: 25, width: '100%' },
   backBtn: { position: 'absolute', left: 0, top: 0, padding: 8 },
   logoCircle: { width: 64, height: 64, borderRadius: 20, backgroundColor: '#000', borderWidth: 2, borderColor: VOEXITheme.colors.primary, alignItems: 'center', justifyContent: 'center' },

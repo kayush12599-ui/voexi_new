@@ -4,8 +4,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 let CURRENT_IP = '192.168.31.39';
 const VNC_PORT = '8000';
 
-const BROWSER_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-
 export interface AIMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
@@ -17,17 +15,17 @@ export interface AIMessage {
 }
 
 const PERSONALITIES = {
-  default: `You are VOEXI AI, a smart, helpful, and concise assistant.
-CRITICAL LANGUAGE RULE: ALWAYS detect the user's input language and respond in the EXACT SAME LANGUAGE. If the user writes or speaks in Hindi or Hinglish, you MUST reply in natural Hindi/Hinglish! Keep responses punchy, accurate, and short.`,
+  default: `You are VOEXI AI, an ultra-smart, helpful, and friendly neural AI assistant.
+CRITICAL LANGUAGE RULE: Detect the user's language and respond in the EXACT SAME LANGUAGE (Hindi, Hinglish, English, etc.). Keep responses punchy, accurate, and direct.`,
 
   assistant: `You are VOEXI Personal Assistant. Friendly, casual, helpful friend style.
-CRITICAL LANGUAGE RULE: ALWAYS reply in the exact same language as the user (Hindi, Hinglish, English, etc.).`,
+CRITICAL LANGUAGE RULE: Respond in the exact same language as the user (Hindi, Hinglish, English, etc.).`,
 
   hacker: `You are VOEXI Cyber-Core. Sharp, technical, cyber-themed, punchy sentences.
-CRITICAL LANGUAGE RULE: ALWAYS reply in the exact same language as the user (Hindi, Hinglish, English, etc.).`,
+CRITICAL LANGUAGE RULE: Respond in the exact same language as the user (Hindi, Hinglish, English, etc.).`,
 
   creator: `You are VOEXI Studio Master. Expert in video, design, art, and music.
-CRITICAL LANGUAGE RULE: ALWAYS reply in the exact same language as the user (Hindi, Hinglish, English, etc.).`
+CRITICAL LANGUAGE RULE: Respond in the exact same language as the user (Hindi, Hinglish, English, etc.).`
 };
 
 export const AIService = {
@@ -39,6 +37,14 @@ export const AIService = {
   async getServerIp() {
     const saved = await AsyncStorage.getItem('@vnc_server_ip');
     return saved || CURRENT_IP;
+  },
+
+  async setApiKey(key: string) {
+    await AsyncStorage.setItem('@voexi_ai_custom_key', key.trim());
+  },
+
+  async getApiKey() {
+    return await AsyncStorage.getItem('@voexi_ai_custom_key');
   },
 
   async generateResponse(
@@ -67,104 +73,157 @@ export const AIService = {
         };
       }
 
-      // 2. HIGH SPEED AI CHAT RESPONSE ENGINE
       const systemPrompt = PERSONALITIES[personality] || PERSONALITIES.default;
-      const seed = Math.random();
+      const customKey = await this.getApiKey();
 
-      // Clean single line prompt for URL safety
-      const cleanPrompt = trimmedInput.replace(/[\r\n]+/g, ' ');
-
-      const fetchWithTimeout = async (url: string, options: any = {}, timeoutMs = 12000) => {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), timeoutMs);
-        try {
-          const res = await fetch(url, {
-            ...options,
-            headers: {
-              'User-Agent': BROWSER_USER_AGENT,
-              ...(options.headers || {})
-            },
-            signal: controller.signal
-          });
-          clearTimeout(timer);
-          return res;
-        } catch (err) {
-          clearTimeout(timer);
-          throw err;
+      // 2. CUSTOM API KEY PROVIDER ENGINE (Groq / Gemini / OpenAI)
+      if (customKey && customKey.length > 5) {
+        // Groq API Key (gsk_...)
+        if (customKey.startsWith('gsk_')) {
+          try {
+            const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${customKey}`
+              },
+              body: JSON.stringify({
+                model: 'llama-3.3-70b-versatile',
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: trimmedInput }
+                ]
+              })
+            });
+            if (res.ok) {
+              const json = await res.json();
+              const reply = json.choices?.[0]?.message?.content;
+              if (reply) return { text: reply.trim(), source: 'Groq LLaMA 3.3 (Real AI)' };
+            }
+          } catch (e) {}
         }
-      };
 
-      // Primary High Speed Browser-Header GET Attempt
-      try {
-        const promptUrl = `https://text.pollinations.ai/${encodeURIComponent(cleanPrompt)}?system=${encodeURIComponent(systemPrompt)}&seed=${seed}`;
-        const res = await fetchWithTimeout(promptUrl, { method: 'GET' }, 10000);
-
-        if (res.ok) {
-          const text = await res.text();
-          if (text && text.trim().length > 0 && !text.includes('502 Bad Gateway') && !text.includes('<!DOCTYPE') && !text.toLowerCase().includes('queue full') && !text.toLowerCase().includes('"error"')) {
-            return { text: text.trim(), source: 'VOEXI Neural Engine' };
-          }
+        // Google Gemini API Key (AIza...)
+        if (customKey.startsWith('AIza')) {
+          try {
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${customKey}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: `${systemPrompt}\n\nUser: ${trimmedInput}` }] }]
+              })
+            });
+            if (res.ok) {
+              const json = await res.json();
+              const reply = json.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (reply) return { text: reply.trim(), source: 'Google Gemini 1.5 Flash (Real AI)' };
+            }
+          } catch (e) {}
         }
-      } catch (err1) {
-        console.warn('AI Prompt GET failed, trying raw endpoint...', err1);
+
+        // OpenAI API Key (sk-...)
+        if (customKey.startsWith('sk-')) {
+          try {
+            const res = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${customKey}`
+              },
+              body: JSON.stringify({
+                model: 'gpt-4o-mini',
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: trimmedInput }
+                ]
+              })
+            });
+            if (res.ok) {
+              const json = await res.json();
+              const reply = json.choices?.[0]?.message?.content;
+              if (reply) return { text: reply.trim(), source: 'OpenAI GPT-4o Mini (Real AI)' };
+            }
+          } catch (e) {}
+        }
       }
 
-      // Secondary High Speed Attempt (Prompt Path)
+      // 3. TIER 0: Local VNC Neural Core (If active)
       try {
-        const rawUrl = `https://text.pollinations.ai/prompt/${encodeURIComponent(cleanPrompt)}?system=${encodeURIComponent(systemPrompt)}&seed=${seed + 0.1}`;
-        const res2 = await fetchWithTimeout(rawUrl, { method: 'GET' }, 10000);
-
-        if (res2.ok) {
-          const text2 = await res2.text();
-          if (text2 && text2.trim().length > 0 && !text2.includes('502 Bad Gateway') && !text2.includes('<!DOCTYPE') && !text2.toLowerCase().includes('queue full') && !text2.toLowerCase().includes('"error"')) {
-            return { text: text2.trim(), source: 'VOEXI Neural Engine' };
-          }
-        }
-      } catch (err2) {}
-
-      // Tertiary Attempt (POST JSON Payload)
-      try {
-        const postRes = await fetchWithTimeout('https://text.pollinations.ai/', {
+        const ip = await this.getServerIp();
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 3000);
+        const vncRes = await fetch(`http://${ip}:${VNC_PORT}/chat`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'User-Agent': BROWSER_USER_AGENT
-          },
-          body: JSON.stringify({
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: cleanPrompt }
-            ],
-            model: 'openai',
-            seed: seed
-          })
-        }, 10000);
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: trimmedInput, system: systemPrompt, history }),
+          signal: controller.signal
+        });
+        clearTimeout(timer);
 
-        if (postRes.ok) {
-          const text3 = await postRes.text();
-          if (text3 && text3.trim().length > 0 && !text3.includes('502 Bad Gateway') && !text3.includes('<!DOCTYPE') && !text3.toLowerCase().includes('queue full')) {
-            return { text: text3.trim(), source: 'VOEXI Neural Engine' };
+        if (vncRes.ok) {
+          const json = await vncRes.json();
+          if (json?.content) return { text: json.content, source: 'VOEXI Neural Core (Local Server)' };
+        }
+      } catch (e) {}
+
+      // 4. TIER 1: Pollinations GET Proxy
+      const seedVal = Math.floor(Math.random() * 9999999);
+      const randomChrome = 120 + Math.floor(Math.random() * 8);
+      const userAgent = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/${randomChrome}.0.0.0 Safari/537.36`;
+
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 7000);
+        const pollUrl = `https://text.pollinations.ai/prompt/${encodeURIComponent(trimmedInput)}?system=${encodeURIComponent(systemPrompt)}&model=openai&seed=${seedVal}`;
+
+        const pollRes = await fetch(pollUrl, {
+          headers: {
+            'User-Agent': userAgent,
+            'Referer': 'https://pollinations.ai/',
+            'Origin': 'https://pollinations.ai',
+            'Accept': 'text/plain, */*'
+          },
+          signal: controller.signal
+        });
+        clearTimeout(timer);
+
+        if (pollRes.ok) {
+          const text = await pollRes.text();
+          if (text && text.trim().length > 0 && !text.includes('FREE_LIMIT') && !text.includes('402 Payment') && !text.includes('<!DOCTYPE')) {
+            return { text: text.trim(), source: 'VOEXI Neural Engine (GPT-4o)' };
           }
         }
-      } catch (err3) {}
+      } catch (e) {}
 
-      // 3. SMART FALLBACK KNOWLEDGE ENGINE (Guarantees intelligent answers even if offline)
-      const lower = cleanPrompt.toLowerCase();
-      if (/^(hi|hello|hey|namaste|kya hal|kaise ho)/i.test(lower)) {
-        return { text: "Namaste! Main VOEXI AI hoon. Aapka swagat hai! Main aapki kya madad kar sakta hoon?", source: "VOEXI Core" };
+      // 5. TIER 2: CONTEXTUAL KNOWLEDGE ENGINE (Guarantees smart answers for math, code, greetings, and info)
+      const lower = trimmedInput.toLowerCase();
+
+      // Simple Math Evaluator
+      const mathMatch = trimmedInput.match(/^(?:what\s+is\s+|calculate\s+|solve\s+)?(\d+\s*[\+\-\*\/]\s*\d+)$/i);
+      if (mathMatch && mathMatch[1]) {
+        try {
+          const expr = mathMatch[1];
+          const result = Function(`"use strict"; return (${expr})`)();
+          return { text: `🔢 Calculation Result:\n${expr} = **${result}**`, source: "VOEXI Math Core" };
+        } catch(e) {}
+      }
+
+      // Greetings
+      if (/^(hi|hello|hey|namaste|kya hal|kaise ho|kaisa hai)/i.test(lower)) {
+        return { text: "Namaste! Main VOEXI AI Assistant hoon. Main aapki poori madad karne ke liye ready hoon! Koi bhi sawaal, code, ya idea poochhein.", source: "VOEXI Core" };
       }
       if (/who are you|kaun ho|tum kon ho|aap kaun/i.test(lower)) {
-        return { text: "Main VOEXI AI Assistant hoon, aapka smart neural assistant! Aap mujhse coding, general knowledge, content ideas ya koi bhi sawaal pooch sakte hain.", source: "VOEXI Core" };
+        return { text: "Main VOEXI AI Assistant hoon, aapka smart neural assistant! Aap mujhse coding, general knowledge, content ideas ya koi bhi question pooch sakte hain.", source: "VOEXI Core" };
       }
 
       return {
-        text: `Aapke sawaal "${trimmedInput}" ke baare me: Main aapko sahayata dene ke liye ready hoon! Kripya apna sawaal ek baar fir se likhein.`,
+        text: `Aapke sawaal "${trimmedInput}" ke liye: Main aapko sahayata dene ke liye tayaar hoon! Kripya Settings (` + "⚙️" + `) me apni Groq ya Gemini API key paste karein for unlimited Real AI responses.`,
         source: 'VOEXI Core'
       };
 
     } catch (e: any) {
       return {
-        text: `Kripya apna sawaal dobara likhein, main aapki sahayata ke liye ready hoon!`,
+        text: `Kripya apna sawaal dobara likhein, main aapki sahayata ke liye tayaar hoon!`,
         source: 'VOEXI Core'
       };
     }

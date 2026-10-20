@@ -22,7 +22,26 @@ import { AuthService } from '../lib/authService';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 
 // 🛡️ UNHANDLED PROMISE REJECTION SHIELD: Suppress non-critical native keep-awake errors
-if (typeof global !== 'undefined') {
+if (Platform.OS === 'web' && typeof document !== 'undefined') {
+  try {
+    const iconFontStyles = `
+      @font-face { font-family: 'Ionicons'; src: url('https://cdn.jsdelivr.net/npm/@expo/vector-icons@14.0.0/build/vendor/react-native-vector-icons/Fonts/Ionicons.ttf') format('truetype'); font-display: swap; }
+      @font-face { font-family: 'MaterialCommunityIcons'; src: url('https://cdn.jsdelivr.net/npm/@expo/vector-icons@14.0.0/build/vendor/react-native-vector-icons/Fonts/MaterialCommunityIcons.ttf') format('truetype'); font-display: swap; }
+      @font-face { font-family: 'MaterialIcons'; src: url('https://cdn.jsdelivr.net/npm/@expo/vector-icons@14.0.0/build/vendor/react-native-vector-icons/Fonts/MaterialIcons.ttf') format('truetype'); font-display: swap; }
+      @font-face { font-family: 'Feather'; src: url('https://cdn.jsdelivr.net/npm/@expo/vector-icons@14.0.0/build/vendor/react-native-vector-icons/Fonts/Feather.ttf') format('truetype'); font-display: swap; }
+      @font-face { font-family: 'FontAwesome'; src: url('https://cdn.jsdelivr.net/npm/@expo/vector-icons@14.0.0/build/vendor/react-native-vector-icons/Fonts/FontAwesome.ttf') format('truetype'); font-display: swap; }
+      @font-face { font-family: 'FontAwesome5_Solid'; src: url('https://cdn.jsdelivr.net/npm/@expo/vector-icons@14.0.0/build/vendor/react-native-vector-icons/Fonts/FontAwesome5_Solid.ttf') format('truetype'); font-display: swap; }
+      @font-face { font-family: 'AntDesign'; src: url('https://cdn.jsdelivr.net/npm/@expo/vector-icons@14.0.0/build/vendor/react-native-vector-icons/Fonts/AntDesign.ttf') format('truetype'); font-display: swap; }
+      @font-face { font-family: 'Entypo'; src: url('https://cdn.jsdelivr.net/npm/@expo/vector-icons@14.0.0/build/vendor/react-native-vector-icons/Fonts/Entypo.ttf') format('truetype'); font-display: swap; }
+    `;
+    const styleEl = document.createElement('style');
+    styleEl.type = 'text/css';
+    styleEl.appendChild(document.createTextNode(iconFontStyles));
+    document.head.appendChild(styleEl);
+  } catch (e) {}
+}
+
+if (Platform.OS !== 'web' && typeof global !== 'undefined') {
   try {
     const tracking = require('promise/setimmediate/rejection-tracking');
     if (tracking && typeof tracking.enable === 'function') {
@@ -64,18 +83,26 @@ export default function RootLayout() {
   const router = useRouter();
 
   useEffect(() => {
-    activateKeepAwakeAsync().catch(() => {});
+    if (Platform.OS !== 'web') {
+      try {
+        activateKeepAwakeAsync().catch(() => {});
+      } catch (e) {}
+    }
     return () => {
-      deactivateKeepAwake().catch(() => {});
+      if (Platform.OS !== 'web') {
+        try {
+          deactivateKeepAwake().catch(() => {});
+        } catch (e) {}
+      }
     };
   }, []);
 
   useEffect(() => {
-    // 2.5 Second Safety Timeout to prevent White Screen on Startup
+    // 3000ms Safety Timeout for Slow 3G / Remote Tunnel Connections
     const safetyTimer = setTimeout(() => {
       setInitialized(true);
       if (Platform.OS !== 'web') SplashScreen.hideAsync().catch(() => {});
-    }, 2500);
+    }, 3000);
 
     const initializeAuth = async () => {
       try {
@@ -172,19 +199,19 @@ export default function RootLayout() {
     if (session && isEmailVerified) {
       // Do NOT auto-redirect away from signup page while user is setting password and completing signup!
       if ((inAuthGroup || inIntro) && !inForgotPassword && !inSignup) {
-        router.replace('/(tabs)');
+        setTimeout(() => { try { router.replace('/(tabs)'); } catch (e) {} }, 100);
       }
     } else {
       // Unverified user or no session trying to access non-auth/non-intro routes
-      if (!inAuthGroup && !inIntro) {
-        router.replace('/(auth)/login');
+      if (!inAuthGroup && !inIntro && segs.length > 0 && segs[0] !== '') {
+        setTimeout(() => { try { router.replace('/(auth)/login'); } catch (e) {} }, 100);
       }
     }
   }, [session, initialized, segments]);
 
   return (
     <I18nextProvider i18n={i18n}>
-      <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000000' }}>
+      <GestureHandlerRootView style={{ flex: 1, height: '100%', backgroundColor: '#000000' }}>
         <CustomThemeProvider>
           <DiamondThemeProvider>
             <GestureSettingsProvider>
@@ -202,7 +229,7 @@ export default function RootLayout() {
 function RootLayoutInner({ initialized }: { initialized: boolean }) {
   if (!initialized) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#000000', justifyContent: 'center', alignItems: 'center', gap: 15 }}>
+      <View style={{ flex: 1, height: '100%', backgroundColor: '#000000', justifyContent: 'center', alignItems: 'center', gap: 15 }}>
         <ActivityIndicator size="large" color={VOEXITheme.colors.primary} />
         <Text style={{ color: '#666', fontSize: 10, fontWeight: '900', letterSpacing: 2 }}>SYNCHRONIZING NEURAL LINK...</Text>
       </View>
@@ -211,8 +238,13 @@ function RootLayoutInner({ initialized }: { initialized: boolean }) {
 
   return (
     <ThemeProvider value={DarkTheme}>
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#000000' } }} />
-      <StatusBar style="light" />
+      <View style={{ flex: 1, height: '100%', backgroundColor: '#000000' }}>
+        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#000000', flex: 1 } }} />
+        <StatusBar style="light" />
+      </View>
     </ThemeProvider>
   );
 }
+
+module.exports = RootLayout;
+module.exports.default = RootLayout;

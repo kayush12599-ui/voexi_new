@@ -40,6 +40,11 @@ export default function AdminDashboardScreen() {
   const [isTransferLoading, setIsTransferLoading] = useState<boolean>(false);
   const [transferFilter, setTransferFilter] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'>('PENDING');
 
+  // Creator Monetization Applications Moderation State
+  const [monetizationApps, setMonetizationApps] = useState<any[]>([]);
+  const [isMonetizationLoading, setIsMonetizationLoading] = useState<boolean>(false);
+  const [monetizationFilter, setMonetizationFilter] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'>('PENDING');
+
   const [reviewReason, setReviewReason] = useState<string>('');
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
 
@@ -81,11 +86,52 @@ export default function AdminDashboardScreen() {
         setKisanApps(apps);
         fetchStudentApps();
         fetchTransferApps();
+        fetchMonetizationApps();
       }
     } catch (e) {
       console.warn('[ADMIN_ROLE_FETCH]', e);
     } finally {
       setIsKisanLoading(false);
+    }
+  };
+
+  const fetchMonetizationApps = async () => {
+    try {
+      setIsMonetizationLoading(true);
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, username, channel_name, email, avatar_url, is_monetized, monetization_status, creator_full_name, creator_dob, creator_phone, creator_address, creator_city, creator_state, creator_pincode, creator_govt_id, updated_at')
+        .not('monetization_status', 'is', null)
+        .neq('monetization_status', 'not_applied')
+        .neq('monetization_status', 'unlocked_checking')
+        .order('updated_at', { ascending: false });
+
+      if (!error && data) {
+        setMonetizationApps(data as any);
+      }
+    } catch (e) {
+      console.warn('[ADMIN_MONETIZATION_FETCH]', e);
+    } finally {
+      setIsMonetizationLoading(false);
+    }
+  };
+
+  const handleReviewMonetizationApp = async (profileId: string, decision: 'approved' | 'rejected') => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      const isApproved = decision === 'approved';
+      const { error } = await supabase.from('profiles').update({
+        is_monetized: isApproved,
+        monetization_status: decision
+      }).eq('id', profileId);
+
+      if (error) throw error;
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("DECISION PROCESSED 🎉", `Creator monetization application has been ${decision.toUpperCase()}!`);
+      fetchMonetizationApps();
+    } catch (e: any) {
+      Alert.alert("Error", e.message || "Failed to update monetization status.");
     }
   };
 
@@ -536,6 +582,14 @@ export default function AdminDashboardScreen() {
     return true;
   });
 
+  const filteredMonetizationApps = monetizationApps.filter((item) => {
+    if (monetizationFilter === 'ALL') return true;
+    if (monetizationFilter === 'PENDING') return item.monetization_status === 'pending' || item.monetization_status === 'under_review';
+    if (monetizationFilter === 'APPROVED') return item.monetization_status === 'approved' || item.is_monetized === true;
+    if (monetizationFilter === 'REJECTED') return item.monetization_status === 'rejected';
+    return true;
+  });
+
   return (
     <SafeAreaView style={styles.container}>
       <LinearGradient colors={['#030308', '#070712', '#0A0A18']} style={StyleSheet.absoluteFill} />
@@ -557,6 +611,91 @@ export default function AdminDashboardScreen() {
       </View>
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+
+        {/* 💵 CREATOR MONETIZATION APPLICATIONS MODERATION SECTION */}
+        <View style={styles.sectionCard}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <Text style={styles.sectionTitle}>💵 CREATOR MONETIZATION APPLICATIONS</Text>
+            <TouchableOpacity onPress={fetchMonetizationApps}>
+              <Ionicons name="refresh" size={18} color="#10B981" />
+            </TouchableOpacity>
+          </View>
+
+          {/* MONETIZATION FILTERS */}
+          <View style={styles.filterRow}>
+            {(['ALL', 'PENDING', 'APPROVED', 'REJECTED'] as const).map((st) => {
+              const isSel = monetizationFilter === st;
+              return (
+                <TouchableOpacity
+                  key={st}
+                  style={[styles.filterChip, isSel && { borderColor: '#10B981', backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}
+                  onPress={() => setMonetizationFilter(st)}
+                >
+                  <Text style={[styles.filterChipText, isSel && { color: '#10B981' }]}>{st}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {isMonetizationLoading ? (
+            <ActivityIndicator size="small" color="#10B981" style={{ marginVertical: 20 }} />
+          ) : filteredMonetizationApps.length === 0 ? (
+            <Text style={styles.emptyText}>No creator monetization applications found in this status.</Text>
+          ) : (
+            filteredMonetizationApps.map((item) => (
+              <View key={item.id} style={styles.appCard}>
+                <View style={styles.appHeaderRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.appName}>{item.creator_full_name || item.channel_name || item.username || 'Creator User'}</Text>
+                    <Text style={styles.appSub}>Handle: @{item.username || 'user'} • Email: {item.email || 'N/A'}</Text>
+                  </View>
+                  <View style={[styles.statusBadge, { backgroundColor: item.is_monetized || item.monetization_status === 'approved' ? '#10B981' : item.monetization_status === 'rejected' ? '#EF4444' : '#F59E0B' }]}>
+                    <Text style={styles.statusBadgeText}>
+                      {item.is_monetized || item.monetization_status === 'approved' ? 'APPROVED ✓' : item.monetization_status === 'rejected' ? 'REJECTED ❌' : 'PENDING REVIEW ⏳'}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* CREATOR APPLICATION DETAILS GRID */}
+                <View style={styles.transferGrid}>
+                  <View style={styles.transferGridCol}>
+                    <Text style={styles.colTitle}>PERSONAL DETAILS</Text>
+                    <Text style={styles.colText}>Full Name: {item.creator_full_name || 'N/A'}</Text>
+                    <Text style={styles.colText}>DOB: {item.creator_dob || 'N/A'}</Text>
+                    <Text style={styles.colText}>Phone: {item.creator_phone || 'N/A'}</Text>
+                    <Text style={styles.colText}>Govt ID: {item.creator_govt_id || 'N/A'}</Text>
+                  </View>
+
+                  <View style={styles.transferGridCol}>
+                    <Text style={[styles.colTitle, { color: '#00D4FF' }]}>ADDRESS DETAILS</Text>
+                    <Text style={styles.colText}>Address: {item.creator_address || 'N/A'}</Text>
+                    <Text style={styles.colText}>City: {item.creator_city || 'N/A'}</Text>
+                    <Text style={styles.colText}>State: {item.creator_state || 'N/A'}</Text>
+                    <Text style={styles.colText}>Pincode: {item.creator_pincode || 'N/A'}</Text>
+                  </View>
+                </View>
+
+                {/* REVIEW ACTION BUTTONS */}
+                {(item.monetization_status === 'pending' || item.monetization_status === 'under_review') && (
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                    <TouchableOpacity
+                      style={[styles.actionBtn, { backgroundColor: '#10B981', flex: 1 }]}
+                      onPress={() => handleReviewMonetizationApp(item.id, 'approved')}
+                    >
+                      <Text style={styles.actionBtnText}>APPROVE MONETIZATION ✓</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.actionBtn, { backgroundColor: '#EF4444', flex: 1 }]}
+                      onPress={() => handleReviewMonetizationApp(item.id, 'rejected')}
+                    >
+                      <Text style={styles.actionBtnText}>REJECT APPLICATION ❌</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            ))
+          )}
+        </View>
 
         {/* 🔄 CHANNEL OWNERSHIP TRANSFERS MODERATION SECTION */}
         <View style={styles.sectionCard}>

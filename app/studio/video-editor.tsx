@@ -108,8 +108,8 @@ export default function VideoStudio() {
   const [musicVolume, setMusicVolume] = useState(100);
   const [videoVolume, setVideoVolume] = useState(100);
   const bgMusicRef = useRef<Audio.Sound | null>(null);
-  const player = useVideoPlayer(media || null, (p) => {
-    p.loop = true;
+  const player = useVideoPlayer(media ? String(media) : '', (p) => {
+    if (p) p.loop = true;
   });
 
   // CRITICAL FIX: Sync player source when media selection changes
@@ -291,6 +291,8 @@ export default function VideoStudio() {
   };
 
   const handlePublish = async () => {
+    const finalTitle = title.trim();
+    if (!finalTitle) return Alert.alert("Required", "Please enter a title for your Video.");
     setLoading(true);
     setUploadProgress(0);
     try {
@@ -462,13 +464,16 @@ export default function VideoStudio() {
          <TouchableOpacity style={styles.nextBtn} onPress={() => setStep(3)}><Text style={styles.nextText}>NEXT</Text></TouchableOpacity>
       </View>
       <View style={styles.canvasArea}><View style={styles.cinemaBox}>
-         <VideoView
-           player={player}
-           style={{ width: '100%', height: '100%' }}
-           contentFit="cover"
-           nativeControls={false}
-           allowsFullscreen={false}
-         />
+         {Boolean(media && player) && (
+           <VideoView
+             key={media}
+             player={player}
+             style={{ width: '100%', height: '100%' }}
+             contentFit="cover"
+             nativeControls={false}
+             allowsFullscreen={false}
+           />
+         )}
          <LinearGradient colors={activeVfx.colors as [string, string]} style={StyleSheet.absoluteFill} pointerEvents="none" />
          {isEnhancing && <Animated.View style={[styles.scanLine, { transform: [{ translateY: scanAnim }] }]} />}
          {storyText ? (<Animated.View {...panResponder.panHandlers} style={[pan.getLayout(), styles.draggable, { backgroundColor: activeBg, borderRadius: 12 }]}><Text style={[styles.canvasText, { color: activeColor, fontFamily: activeFont.id, fontSize: fontSize, textShadowColor: glowColor, textShadowRadius: glowColor !== 'transparent' ? (glowRadius * 4) : 0 }]}>{storyText}</Text></Animated.View>) : null}
@@ -625,7 +630,7 @@ export default function VideoStudio() {
       <View style={styles.videoHeader}><TouchableOpacity onPress={() => setStep(2)}><Ionicons name="arrow-back" size={28} color="#fff" /></TouchableOpacity><Text style={styles.headerText}>TRANSMIT CONFIG</Text><View style={{width: 28}} /></View>
       <ScrollView style={{padding: 20}} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
          {currentUserProfile && (<View style={styles.broadcasterTag}><Image source={{ uri: currentUserProfile.avatar_url }} style={styles.broadcasterAvatar} /><View><Text style={styles.broadcasterLabel}>BROADCASTER</Text><Text style={styles.broadcasterName}>{currentUserProfile.channel_name || currentUserProfile.username}</Text></View></View>)}
-         <View style={styles.finalPreview}><VideoView player={player} style={StyleSheet.absoluteFill} contentFit="cover" /></View>
+         <View style={styles.finalPreview}>{Boolean(media && player) && <VideoView key={media} player={player} style={StyleSheet.absoluteFill} contentFit="cover" />}</View>
          <Text style={styles.labelTitle}>TITLE & DESCRIPTION</Text>
          <TextInput style={styles.darkInput} placeholder="Signal name..." placeholderTextColor="#444" value={title} onChangeText={setTitle} />
          <TextInput style={[styles.darkInput, {height: 80}]} multiline placeholder="Describe transmission..." placeholderTextColor="#444" value={description} onChangeText={setDescription} />
@@ -684,7 +689,7 @@ export default function VideoStudio() {
 
          <View style={styles.reviewCard}>
             <View style={styles.finalCinemaBox}>
-               <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="cover" />
+               {Boolean(media && player) && <VideoView key={media} player={player} style={StyleSheet.absoluteFill} contentFit="cover" />}
                <View style={styles.monitorOverlay}><Text style={styles.monitorTag}>LIVE MONITORING</Text><View style={styles.monitorDot} /></View>
                <Waveform />
             </View>

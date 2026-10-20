@@ -435,9 +435,13 @@ const generateRealAudioPeaks = (sound: any, totalBars: number = 60) => {
 
 export default function ReelsStudio() {
   useEffect(() => {
-    activateKeepAwakeAsync('reels-studio-tag').catch(() => {});
+    try {
+      activateKeepAwakeAsync().catch(() => {});
+    } catch (e) {}
     return () => {
-      deactivateKeepAwake('reels-studio-tag').catch(() => {});
+      try {
+        deactivateKeepAwake().catch(() => {});
+      } catch (e) {}
     };
   }, []);
 
@@ -900,6 +904,7 @@ export default function ReelsStudio() {
   const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [qualityPreset, setQualityPreset] = useState<'1080p' | '720p' | '480p' | '360p'>('1080p');
   const [category, setCategory] = useState(GENRES[0] || 'DISCOVER');
   const [tags, setTags] = useState('reels, viral, discover');
   const [location, setLocation] = useState('');
@@ -1017,7 +1022,9 @@ export default function ReelsStudio() {
     } catch (e) {}
   };
 
-  const player = useVideoPlayer(media || null, (p) => { p.loop = true; });
+  const player = useVideoPlayer(media ? String(media) : '', (p) => {
+    if (p) p.loop = true;
+  });
 
   useEffect(() => {
     if (step === 1) {
@@ -1513,8 +1520,17 @@ export default function ReelsStudio() {
     });
   };
 
+  const generateUUID = (): string => {
+    const u = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3f | 0x80);
+      return v.toString(16);
+    });
+    return sanitizeUUID(u);
+  };
+
   const onPublish = async () => {
-    if (!title.trim()) return Alert.alert("Required", "Please enter a title for your Reel.");
+    const finalTitle = title.trim();
+    if (!finalTitle) return Alert.alert("Required", "Please enter a title for your Reel.");
     setLoading(true);
     setUploadProgress(0);
     try {
@@ -1586,6 +1602,7 @@ export default function ReelsStudio() {
         collaborator_avatar: firstCollab?.avatar_url || null,
         collaborators: collaborators,
         collab_status: collaborators.length > 0 ? 'pending' : null,
+        quality_preset: qualityPreset,
         visibility: visibility || 'public',
         category: category || 'DISCOVER',
         location: location || null,
@@ -2572,7 +2589,9 @@ export default function ReelsStudio() {
                   { scale: scale }
                 ]
               }}>
-                <VideoView player={player} style={StyleSheet.absoluteFill} contentFit={videoFitMode || 'cover'} nativeControls={false} pointerEvents="none" />
+                {Boolean(media && player) && (
+                  <VideoView key={`reel_v_${media}`} player={player} style={StyleSheet.absoluteFill} contentFit={videoFitMode || 'cover'} nativeControls={false} pointerEvents="none" />
+                )}
               </Animated.View>
             </View>
 
@@ -2650,7 +2669,9 @@ export default function ReelsStudio() {
                   { scale: scale }
                 ]
               }}>
-                <VideoView player={player} style={StyleSheet.absoluteFill} contentFit={videoFitMode || 'cover'} nativeControls={false} />
+                {Boolean(media && player) && (
+                  <VideoView key={`reel_p_${media}`} player={player} style={StyleSheet.absoluteFill} contentFit={videoFitMode || 'cover'} nativeControls={false} />
+                )}
               </Animated.View>
             </View>
 
@@ -2825,6 +2846,39 @@ export default function ReelsStudio() {
                 );
              })}
           </ScrollView>
+
+          {/* 5.5 REELS BROADCAST QUALITY SELECTOR */}
+          <Text style={styles.labelTitle}>REELS BROADCAST QUALITY</Text>
+          <View style={{ gap: 10, marginBottom: 25 }}>
+             {[
+               { id: '1080p', label: '💎 1080p Full HD (60 FPS)', desc: 'Highest clarity & maximum viral engagement', badge: 'ULTRA HD' },
+               { id: '720p', label: '⚡ 720p HD (Balanced)', desc: 'Fast processing & high definition streaming', badge: 'HIGH' },
+               { id: '480p', label: '📱 480p SD (Fast Upload)', desc: 'Standard definition, saves mobile upload data', badge: 'NORMAL' },
+               { id: '360p', label: '🔋 360p Data Saver', desc: 'Ultra compact size for slow networks', badge: 'COMPACT' },
+             ].map(q => {
+               const isSel = qualityPreset === q.id;
+               return (
+                 <TouchableOpacity
+                   key={q.id}
+                   style={[styles.qualitySelectCard, isSel && styles.qualitySelectActive]}
+                   onPress={() => {
+                     setQualityPreset(q.id as any);
+                     if (Haptics) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                   }}
+                   activeOpacity={0.8}
+                 >
+                   <Ionicons name={isSel ? "checkmark-circle" : "ellipse-outline"} size={20} color={isSel ? COLORS.purple : "#666"} />
+                   <View style={{ flex: 1 }}>
+                     <Text style={[styles.qualitySelectTitle, isSel && { color: "#FFF", fontWeight: "900" }]}>{q.label}</Text>
+                     <Text style={styles.qualitySelectSub}>{q.desc}</Text>
+                   </View>
+                   <View style={[styles.qualityPill, isSel && { backgroundColor: COLORS.purple }]}>
+                     <Text style={[styles.qualityPillTxt, isSel && { color: "#FFF" }]}>{q.badge}</Text>
+                   </View>
+                 </TouchableOpacity>
+               );
+             })}
+          </View>
 
           {/* 6. GPS LOCATION SELECTOR */}
           <Text style={styles.labelTitle}>GPS SIGNAL LOCATION</Text>
@@ -3484,6 +3538,14 @@ const styles = StyleSheet.create({
   soundRemixUseBtn: { backgroundColor: COLORS.purple, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 },
   soundRemixUseBtnSelected: { backgroundColor: COLORS.cyan },
   soundRemixUseBtnTxt: { color: '#FFF', fontSize: 10, fontWeight: '900' },
+
+  // REELS MISSION CONTROL QUALITY SELECTOR
+  qualitySelectCard: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
+  qualitySelectActive: { backgroundColor: 'rgba(168, 85, 247, 0.15)', borderColor: COLORS.purple },
+  qualitySelectTitle: { color: '#aaa', fontSize: 13, fontWeight: '700' },
+  qualitySelectSub: { color: '#666', fontSize: 10, marginTop: 2 },
+  qualityPill: { backgroundColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  qualityPillTxt: { color: '#888', fontSize: 9, fontWeight: '900' },
   soundCard: { flexDirection: 'row', alignItems: 'center', paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' },
   soundThumb: { width: 48, height: 48, borderRadius: 10, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
   soundTitle: { color: '#fff', fontSize: 13, fontWeight: 'bold' },

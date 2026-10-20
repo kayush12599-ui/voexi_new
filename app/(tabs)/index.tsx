@@ -1,98 +1,144 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { StyleSheet, View, Text, FlatList, TouchableOpacity, RefreshControl, ActivityIndicator, Dimensions, StatusBar, ScrollView, Platform } from 'react-native';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { StyleSheet, View, Text, FlatList, TouchableOpacity, RefreshControl, ActivityIndicator, StatusBar, ScrollView, Platform } from 'react-native';
 import { Image } from 'expo-image';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
-import { useRouter, useFocusEffect } from 'expo-router';
-import { useIsFocused } from '@react-navigation/native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons, Feather } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../../lib/supabase';
 import { VOEXITheme } from '../../constants/theme';
-import { recordView } from '../../lib/earnings';
 import { useTheme } from '../../hooks/useTheme';
-import { useLanguage } from '../../hooks/useLanguage';
 import { VoexiIcon } from '../../components/VoexiIcon';
 import PostCard from '../../components/PostCard';
-import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NeuralAuditModal } from '../../components/moderation/NeuralAuditModal';
 import CreateMenuHoloOrbit from '../../components/CreateMenuHoloOrbit';
 import { TopHeaderDiamondBadge } from '../../components/TopHeaderDiamondBadge';
 
-const { width } = Dimensions.get('window');
+const isReelPost = (p: any): boolean => {
+  if (!p) return true;
 
-export default function HomeScreen() {
+  // Photos, Visual Portfolios & Articles are NEVER Reels!
+  const mediaType = String(p.media_type || p.post_type || p.category || '').toLowerCase().trim();
+  if (mediaType === 'photo' || mediaType === 'image' || mediaType === 'photos' || mediaType === 'writing' || mediaType === 'letter' || mediaType === 'text') {
+    return false;
+  }
+
+  // 1. Explicit Boolean / String Flags
+  if (p.is_reel === true || p.is_reel === 'true' || p.is_story === true || p.is_story === 'true') return true;
+
+  // 2. Post Type / Category Check
+  const pt = String(p.post_type || p.category || '').toLowerCase().trim();
+  if (pt.includes('reel') || pt.includes('story') || pt.includes('short') || pt === 'story' || pt === 'story_mini') return true;
+
+  // 3. Title & Description Keywords Check
+  const title = String(p.title || '').toLowerCase();
+  const desc = String(p.description || '').toLowerCase();
+  if (
+    title.includes('reel') ||
+    title.includes('short') ||
+    title.includes('story') ||
+    desc.includes('#reel') ||
+    desc.includes('#reels') ||
+    desc.includes('#story') ||
+    desc.includes('#shorts')
+  ) {
+    return true;
+  }
+
+  // 4. Media URL Keywords Check
+  const url = String(p.media_url || p.video_url || '').toLowerCase();
+  if (url.includes('reel') || url.includes('short') || url.includes('story')) return true;
+
+  // 5. Reels Studio Metadata (crop_fit / crop_x / crop_y / crop_scale)
+  if (p.crop_fit !== undefined || p.crop_x !== undefined || p.crop_y !== undefined || p.crop_scale !== undefined) {
+    return true;
+  }
+
+  // 6. Strict Vertical 9:16 Aspect Ratio Detection
+  const w = Number(p.width) || 0;
+  const h = Number(p.height) || 0;
+  const ratio = Number(p.aspect_ratio) || 0;
+
+  if (h > 0 && w > 0 && h > w) return true;
+  if (ratio > 0 && ratio < 0.95) return true;
+
+  return false;
+};
+
+// Fast fetch with timeout to prevent local server hanging
+const fetchWithTimeout = async (url: string, timeoutMs = 1200) => {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
+    return response;
+  } catch {
+    return null;
+  }
+};
+
+const sanitizeCreatorInfo = (rawName?: string | null, rawUser?: string | null) => {
+  let name = (rawName || '').trim();
+  let username = (rawUser || '').trim().toLowerCase().replace('@', '');
+
+  const isGeneric = !name || name === 'VOEXI Creator' || name === 'VOEXI Broadcaster' || name === 'broadcaster' || name === 'admin_creator' || name.startsWith('user_') || name === 'user';
+
+  if (isGeneric) {
+    name = 'VOEXI Official';
+    username = 'voexi_official';
+  } else {
+    if (!username || username === 'broadcaster' || username.startsWith('user_')) {
+      username = name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    }
+  }
+
+  return { name, username };
+};
+
+const getValidAvatarUrl = (rawUrl?: string | null, name: string = 'User'): string => {
+  if (!rawUrl || typeof rawUrl !== 'string') {
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=A855F7&color=fff&bold=true`;
+  }
+  let url = rawUrl.trim();
+  if (url === '' || url === 'null' || url === 'undefined') {
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=A855F7&color=fff&bold=true`;
+  }
+  if (url.startsWith('//')) {
+    return 'https:' + url;
+  }
+  // Local Server 2 Uploads
+  if (url.startsWith('/uploads/') || url.startsWith('/files/') || url.startsWith('/avatar/') || url.startsWith('/logos/')) {
+    return `http://192.168.31.39:8080${url}`;
+  }
+  if (url.startsWith('uploads/') || url.startsWith('files/') || url.startsWith('avatar/') || url.startsWith('logos/')) {
+    return `http://192.168.31.39:8080/${url}`;
+  }
+  if (url.startsWith('/')) {
+    return `https://voexi.b-cdn.net${url}`;
+  }
+  if (!url.startsWith('http') && !url.startsWith('file://') && !url.startsWith('content://')) {
+    return `https://voexi.b-cdn.net/${url}`;
+  }
+  return url;
+};
+
+export default function HomeScreen () {
   const router = useRouter();
-  const isFocused = useIsFocused();
   const { isLight } = useTheme();
-  const { t } = useLanguage();
+  const insets = useSafeAreaInsets();
 
   const [posts, setPosts] = useState<any[]>([]);
   const [creators, setCreators] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
-  const [userProfile, setUserData] = useState<any>(null);
+  const [userProfile, setUserProfile] = useState<any>(null);
   const [hasMyStory, setHasMyStory] = useState(false);
   const [auditTarget, setAuditTarget] = useState<any>(null);
   const [activeCategory, setActiveCategory] = useState('DISCOVER');
   const [showCreateMenu, setShowCreateMenu] = useState(false);
-
-  // Fast fetch with timeout to prevent local server hanging
-  const fetchWithTimeout = async (url: string, timeoutMs = 1200) => {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), timeoutMs);
-      const response = await fetch(url, { signal: controller.signal });
-      clearTimeout(timeout);
-      return response;
-    } catch (e) {
-      return null;
-    }
-  };
-
-  const isReelPost = (p: any): boolean => {
-    if (!p) return true;
-
-    // 1. Explicit Boolean / String Flags
-    if (p.is_reel === true || p.is_reel === 'true' || String(p.is_reel) === 'true') return true;
-
-    // 2. Post Type Check
-    const pt = String(p.post_type || '').toLowerCase().trim();
-    if (pt.includes('reel') || pt.includes('story') || pt.includes('short')) return true;
-
-    // 3. Title & Description Keywords Check
-    const title = String(p.title || '').toLowerCase();
-    const desc = String(p.description || '').toLowerCase();
-    if (
-      title.includes('reel') ||
-      title.includes('short') ||
-      desc.includes('#reel') ||
-      desc.includes('#reels') ||
-      desc.includes('#shorts')
-    ) {
-      return true;
-    }
-
-    // 4. Media URL Keywords Check
-    const url = String(p.media_url || p.video_url || '').toLowerCase();
-    if (url.includes('reel') || url.includes('short')) return true;
-
-    // 5. Reels Studio Metadata (crop_fit / crop_x / crop_y / crop_scale)
-    if (p.crop_fit !== undefined || p.crop_x !== undefined || p.crop_y !== undefined || p.crop_scale !== undefined) {
-      return true;
-    }
-
-    // 6. Strict Vertical 9:16 Aspect Ratio Detection
-    const w = Number(p.width) || 0;
-    const h = Number(p.height) || 0;
-    const ratio = Number(p.aspect_ratio) || 0;
-
-    if (h > 0 && w > 0 && h > w) return true;
-    if (ratio > 0 && ratio < 0.95) return true;
-
-    return false;
-  };
 
   const fetchData = async (isRefreshing = false) => {
     // 1. INSTANT LOCAL CACHE LOAD (0ms delay UI render)
@@ -108,13 +154,15 @@ export default function HomeScreen() {
           }
         }
       }
-    } catch (e) {}
+    } catch {
+      // Local cache load optional
+    }
 
     if (!isRefreshing && posts.length === 0) setLoading(true);
 
     try {
       // 2. PARALLEL NETWORK FETCH (ALL REQUESTS FIRE AT THE SAME TIME)
-      const [sessionRes, supabasePostsRes, penDriveRes, creatorsRes] = await Promise.allSettled([
+      const [sessionRes, supabasePostsRes, penDriveRes, creatorsRes, s2ProfilesRes] = await Promise.allSettled([
         supabase.auth.getSession(),
         supabase
           .from('posts')
@@ -126,6 +174,7 @@ export default function HomeScreen() {
           .limit(50),
         fetchWithTimeout('http://192.168.31.39:8080/files.json', 1200),
         supabase.from('profiles').select('*').limit(15),
+        fetchWithTimeout('http://192.168.31.39:8080/profiles.json', 1200),
       ]);
 
       const session = sessionRes.status === 'fulfilled' ? sessionRes.value.data.session : null;
@@ -148,7 +197,9 @@ export default function HomeScreen() {
             .order('created_at', { ascending: false })
             .limit(50);
           if (rawFallback) supabasePosts = rawFallback;
-        } catch (e) {}
+        } catch {
+          // Fallback fetch optional
+        }
       }
 
       // Process PenDrive files
@@ -157,7 +208,30 @@ export default function HomeScreen() {
         try {
           const allPenFiles = await penDriveRes.value.json();
           if (Array.isArray(allPenFiles)) penDriveFiles = allPenFiles;
-        } catch (e) {}
+        } catch {
+          // PenDrive JSON parse optional
+        }
+      }
+
+      // Build Server 2 Profiles Map (handles both Array & Dictionary formats)
+      let server2ProfilesMap: Record<string, any> = {};
+      if (s2ProfilesRes.status === 'fulfilled' && s2ProfilesRes.value && s2ProfilesRes.value.ok) {
+        try {
+          const s2Data = await s2ProfilesRes.value.json();
+          if (Array.isArray(s2Data)) {
+            s2Data.forEach((prof: any) => {
+              if (prof.id) server2ProfilesMap[prof.id] = prof;
+              if (prof.user_id) server2ProfilesMap[prof.user_id] = prof;
+              if (prof.username) server2ProfilesMap[prof.username] = prof;
+              if (prof.channel_name) server2ProfilesMap[prof.channel_name] = prof;
+              if (prof.uploader) server2ProfilesMap[prof.uploader] = prof;
+            });
+          } else if (s2Data && typeof s2Data === 'object') {
+            server2ProfilesMap = s2Data;
+          }
+        } catch {
+          // Server 2 profiles JSON parse optional
+        }
       }
 
       // Fetch AsyncStorage local uploads
@@ -170,7 +244,9 @@ export default function HomeScreen() {
             localUploadsFiltered = localUploads.filter((p: any) => !isReelPost(p));
           }
         }
-      } catch (e) {}
+      } catch {
+        // Local uploads fetch optional
+      }
 
       // Combine Supabase DB Posts FIRST, then Local Uploads, then PenDrive
       const existingUrls = new Set(supabasePosts.map((p: any) => p.media_url || p.video_url));
@@ -190,42 +266,143 @@ export default function HomeScreen() {
         return true;
       });
 
-      const fullPosts = allCombinedPosts.map(p => {
-        const isMine = Boolean(myId && p.user_id === myId);
-        let prof = p.profiles;
-        if (isMine && userProfile && (!prof || !prof.channel_name)) {
-          prof = {
-            id: myId,
-            channel_name: userProfile.channel_name || userProfile.username || 'My Station',
-            username: userProfile.username || 'user',
-            avatar_url: userProfile.avatar_url,
-          };
+      // Load user profile from local cache or Server 2
+      if (myId) {
+        try {
+          if (server2ProfilesMap[myId]) {
+            setUserProfile(server2ProfilesMap[myId]);
+          } else {
+            const cachedRaw = await AsyncStorage.getItem(`@cached_user_profile_${myId}`);
+            if (cachedRaw) setUserProfile(JSON.parse(cachedRaw));
+          }
+        } catch {
+          // Profile caching optional
         }
+      }
+
+      const fullPosts = allCombinedPosts.map(p => {
+        const profObjCandidate = Array.isArray(p.profiles) ? p.profiles[0] : (p.profiles && typeof p.profiles === 'object' ? p.profiles : null);
+
+        // Match Server 2 profile by user_id, uploader, username or channel_name
+        const s2Prof = (p.user_id && server2ProfilesMap[p.user_id]) ||
+                       (p.uploader && server2ProfilesMap[p.uploader]) ||
+                       (p.username && server2ProfilesMap[p.username]) ||
+                       (p.channel_name && server2ProfilesMap[p.channel_name]) ||
+                       null;
+
+        const rawName = profObjCandidate?.channel_name || profObjCandidate?.username || s2Prof?.channel_name || s2Prof?.username || p.channel_name || p.username || p.uploader || 'VOEXI Official';
+        const rawUser = profObjCandidate?.username || profObjCandidate?.channel_name || s2Prof?.username || p.username || (p.uploader ? p.uploader.replace('@', '') : 'voexi_official');
+
+        const { name: cName, username: uName } = sanitizeCreatorInfo(rawName, rawUser);
+
+        const rawLogo = profObjCandidate?.custom_logo_url || profObjCandidate?.logo_url || profObjCandidate?.avatar_url ||
+                        s2Prof?.custom_logo_url || s2Prof?.logo_url || s2Prof?.avatar_url ||
+                        p.custom_logo_url || p.logo_url || p.avatar_url || p.user_avatar || p.uploader_avatar;
+
+        const resolvedAvatar = getValidAvatarUrl(rawLogo, cName);
+
+        const profObj = {
+          id: p.user_id || profObjCandidate?.id || s2Prof?.id || `user_${p.id}`,
+          channel_name: cName,
+          username: uName,
+          avatar_url: resolvedAvatar,
+          ...(profObjCandidate || s2Prof || {})
+        };
+
+        let cleanTitle = p.title || p.description || 'VOEXI Production';
+        if (cleanTitle.endsWith('.mp4') || cleanTitle.endsWith('.mov') || cleanTitle.endsWith('.m3u8') || cleanTitle.startsWith('VID_') || cleanTitle.startsWith('file_')) {
+          cleanTitle = cleanTitle.replace(/\.[^/.]+$/, "").replace(/_/g, " ").replace(/-/g, " ");
+          cleanTitle = cleanTitle.replace(/VID\s*\d+/gi, "VOEXI Studio Release").replace(/recording\s*\d+/gi, "Neural Spectrum Feed");
+        }
+
         return {
           ...p,
-          title: p.title || p.description || 'VOEXI Production',
-          profiles: prof || {
-            id: p.user_id,
-            channel_name: p.channel_name || p.username || 'VOEXI Broadcaster',
-            username: p.username || 'broadcaster',
-            avatar_url: p.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(p.title || 'VOEXI')}&background=A855F7&color=fff&bold=true`
-          }
+          title: cleanTitle,
+          profiles: profObj
         };
       });
 
       setPosts(fullPosts);
 
-      // Process creators list safely
+      // Check FRESH (<= 24 Hours) active stories from Supabase DB & local uploads
+      let activeStoryUserIds = new Set<string>();
+      const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+      const nowMs = Date.now();
+
+      try {
+        const { data: activeStories } = await supabase
+          .from('posts')
+          .select('user_id, created_at')
+          .or('post_type.ilike.%story%,is_story.eq.true');
+
+        if (activeStories && activeStories.length > 0) {
+          activeStories.forEach(s => {
+            const storyTime = s.created_at ? new Date(s.created_at).getTime() : nowMs;
+            if (s.user_id && (nowMs - storyTime) < TWENTY_FOUR_HOURS) {
+              activeStoryUserIds.add(s.user_id);
+            }
+          });
+        }
+
+        const localRaw = await AsyncStorage.getItem('@my_local_uploads');
+        if (localRaw) {
+          const localList = JSON.parse(localRaw);
+          if (Array.isArray(localList)) {
+            localList.forEach((p: any) => {
+              const pt = (p.post_type || p.category || '').toLowerCase();
+              if (p.is_story || pt.includes('story')) {
+                const storyTime = p.created_at ? new Date(p.created_at).getTime() : nowMs;
+                if ((nowMs - storyTime) < TWENTY_FOUR_HOURS) {
+                  if (p.user_id) activeStoryUserIds.add(p.user_id);
+                  if (myId) activeStoryUserIds.add(myId);
+                }
+              }
+            });
+          }
+        }
+
+        // Also check Server 2 active stories
+        try {
+          const s2Res = await fetch('http://192.168.31.39:8080/files.json').then(r => r.json()).catch(() => null);
+          if (Array.isArray(s2Res)) {
+            s2Res.forEach((f: any) => {
+              const pt = (f.post_type || f.category || '').toLowerCase();
+              if (f.is_story || pt.includes('story') || f.filename?.toLowerCase().startsWith('story_')) {
+                const fileTime = f.uploaded_at ? new Date(f.uploaded_at).getTime() : nowMs;
+                if ((nowMs - fileTime) < TWENTY_FOUR_HOURS) {
+                  if (f.user_id) activeStoryUserIds.add(f.user_id);
+                  if (myId) activeStoryUserIds.add(myId);
+                }
+              }
+            });
+          }
+        } catch {
+          // Server 2 active stories check optional
+        }
+      } catch {
+        // Active stories check optional
+      }
+
+      if (myId && activeStoryUserIds.has(myId)) {
+        setHasMyStory(true);
+      } else {
+        setHasMyStory(false);
+      }
+
+      // Process creators list safely with active stories check
       const creatorsData = (creatorsRes.status === 'fulfilled' && creatorsRes.value.data) ? creatorsRes.value.data : [];
       if (creatorsData.length > 0) {
         const realUsers = creatorsData.map((u: any) => {
-          const displayName = u.username || u.channel_name || 'broadcaster';
-          const fallbackAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=A855F7&color=fff&bold=true`;
+          const s2Prof = server2ProfilesMap[u.id || u.user_id];
+          const displayName = u.channel_name || u.username || s2Prof?.channel_name || s2Prof?.username || 'broadcaster';
+          const handleName = u.username || s2Prof?.username || displayName;
+          const rawAv = u.custom_logo_url || u.logo_url || u.avatar_url || s2Prof?.custom_logo_url || s2Prof?.logo_url || s2Prof?.avatar_url;
           return {
             ...u,
-            username: displayName,
-            avatar_url: u.avatar_url && u.avatar_url.startsWith('http') ? u.avatar_url : fallbackAvatar,
-            hasStory: false
+            channel_name: displayName,
+            username: handleName,
+            avatar_url: getValidAvatarUrl(rawAv, displayName),
+            hasStory: activeStoryUserIds.has(u.id || u.user_id)
           };
         });
         setCreators(realUsers);
@@ -239,13 +416,6 @@ export default function HomeScreen() {
   };
 
   useEffect(() => { fetchData(); }, []);
-
-  // AUTO-REFRESH HOME FEED WHEN RETURNING FROM UPLOAD!
-  useFocusEffect(
-    useCallback(() => {
-      fetchData(true);
-    }, [])
-  );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -285,19 +455,40 @@ export default function HomeScreen() {
     }
   };
 
-  const myAvatarUri = userProfile?.avatar_url && userProfile.avatar_url.startsWith('http')
-    ? userProfile.avatar_url
-    : `https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile?.username || userProfile?.channel_name || 'Me')}&background=A855F7&color=fff&bold=true`;
+  const myAvatarUri = getValidAvatarUrl(
+    userProfile?.custom_logo_url || userProfile?.logo_url || userProfile?.avatar_url,
+    userProfile?.username || userProfile?.channel_name || 'Me'
+  );
+
+  const filteredPosts = useMemo(() => {
+    if (!activeCategory || activeCategory === 'DISCOVER') return posts;
+    return posts.filter(p => {
+      const pt = String(p.post_type || p.media_type || '').toUpperCase();
+      const cat = String(p.category || p.title || p.description || '').toUpperCase();
+
+      if (activeCategory === 'READER VIEW') {
+        return pt.includes('PHOTO') || pt.includes('IMAGE') || pt.includes('WRITING') || pt.includes('LETTER') || pt.includes('TEXT') || pt.includes('ARTICLE') || pt.includes('NEURAL') || p.media_type === 'image' || p.media_type === 'text' || !p.video_url;
+      }
+      if (activeCategory === 'PHOTO') {
+        return pt === 'PHOTO' || pt === 'IMAGE' || p.media_type === 'image' || cat.includes('PHOTO') || cat.includes('PHOTOS');
+      }
+      if (activeCategory === 'WRITING') {
+        return pt === 'WRITING' || pt === 'LETTER' || pt === 'TEXT' || pt === 'NEURAL WRITING' || p.media_type === 'text' || cat.includes('WRITING') || cat.includes('NEURAL');
+      }
+
+      return cat.includes(activeCategory.toUpperCase()) || pt.includes(activeCategory.toUpperCase());
+    });
+  }, [posts, activeCategory]);
 
   return (
-    <SafeAreaView style={[styles.container, isLight && { backgroundColor: '#fff' }]} edges={['top', 'left', 'right']}>
-      <StatusBar barStyle={isLight ? "dark-content" : "light-content"} />
+    <View style={[styles.container, isLight && { backgroundColor: '#fff' }]}>
+      <StatusBar barStyle={isLight ? "dark-content" : "light-content"} translucent backgroundColor="transparent" />
 
       {/* 1. TOP HEADER */}
-      <View style={[styles.header, isLight && { borderBottomColor: '#EEE' }]}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 10) + 4 }, isLight && { backgroundColor: '#fff', borderBottomColor: '#EEE' }]}>
          <View style={styles.headerTop}>
             <TouchableOpacity onPress={() => router.push('/branding')} style={styles.brandContainer}>
-              <VoexiIcon size={38} isLight={isLight} />
+              <VoexiIcon size={32} isLight={isLight} />
               <Text style={[styles.premiumBrandText, { color: isLight ? '#000' : '#fff' }]}>VOEXI</Text>
             </TouchableOpacity>
 
@@ -320,8 +511,8 @@ export default function HomeScreen() {
       </View>
 
       <FlatList
-        data={posts}
-        keyExtractor={item => item.id}
+        data={filteredPosts}
+        keyExtractor={(item, index) => (item.id ? String(item.id) : `post_${index}`)}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
         removeClippedSubviews={Platform.OS === 'android'}
@@ -348,7 +539,7 @@ export default function HomeScreen() {
             {/* 2. CATEGORIES PILLS */}
             <View style={styles.categoriesRow}>
                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 15, alignItems: 'center' }}>
-                  {['DISCOVER', 'MUSIC', 'GAMING', 'TECH', 'NEWS', 'LIFESTYLE'].map((cat) => {
+                  {['DISCOVER', 'WRITING', 'MUSIC', 'GAMING', 'TECH', 'NEWS', 'LIFESTYLE'].map((cat) => {
                      const isSelected = activeCategory === cat;
                      return (
                        <TouchableOpacity
@@ -379,7 +570,7 @@ export default function HomeScreen() {
                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20 }}>
                   <TouchableOpacity
                     style={styles.storyItem}
-                    onPress={() => router.push(hasMyStory ? '/story/me' : '/studio/story-editor')}
+                    onPress={() => router.push('/story/me')}
                   >
                      <View style={styles.storyOuterRing}>
                         <LinearGradient
@@ -399,9 +590,9 @@ export default function HomeScreen() {
                      <Text style={[styles.storyUser, isLight && { color: '#666' }]} numberOfLines={1}>My Station</Text>
                   </TouchableOpacity>
 
-                  {creators.map(c => (
+                  {creators.map((c, idx) => (
                     <TouchableOpacity
-                      key={c.id}
+                      key={c.id || c.username || `creator_${idx}`}
                       style={styles.storyItem}
                       onPress={() => router.push(c.hasStory ? `/story/${c.id}` : `/user/${c.id}`)}
                     >
@@ -430,11 +621,15 @@ export default function HomeScreen() {
             currentUserId={userId}
             isLight={isLight}
             onUploaderPress={(id: any) => router.push(`/user/${id}`)}
-            onCardPress={(id: any) => {
-              if (item.is_reel === true || item.post_type === 'Reels' || item.post_type === 'Reel') {
-                router.push({ pathname: '/(tabs)/video-feed', params: { id: item.id } });
+            onCardPress={(cardItem: any) => {
+              const itemObj = (typeof cardItem === 'object' && cardItem !== null) ? cardItem : item;
+              const pt = String(itemObj?.post_type || '').toLowerCase();
+              const isReel = itemObj?.is_reel === true || pt.includes('reel');
+
+              if (isReel) {
+                router.push({ pathname: '/(tabs)/video-feed', params: { id: itemObj.id } });
               } else {
-                router.push(`/video/${id}`);
+                router.push(`/video/${itemObj.id || cardItem}`);
               }
             }}
             onAuditPress={(p: any) => setAuditTarget(p)}
@@ -458,103 +653,79 @@ export default function HomeScreen() {
           currentUserId={userId || ''}
         />
       )}
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
+  container: { flex: 1, width: '100%', maxWidth: 640, alignSelf: 'center', backgroundColor: '#000' },
   header: {
-    paddingHorizontal: 15,
-    height: 60,
-    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingBottom: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#111',
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: '#000000',
   },
   headerTop: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     width: '100%',
-    height: 52,
   },
   brandContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   premiumBrandText: {
     color: '#FFFFFF',
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '900',
-    letterSpacing: 2,
+    letterSpacing: 1.5,
     textTransform: 'uppercase',
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   youtubeSearchBtn: {
-    width: 38,
-    height: 38,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  headerMessageBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: 'rgba(168, 85, 247, 0.12)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(168, 85, 247, 0.3)',
   },
   headerActionBtn: {
-    width: 38,
-    height: 38,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   headerMenuBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: 'rgba(255, 215, 0, 0.12)',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#FFD700',
-  },
-  headerProfileBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 1.5,
-    borderColor: '#A855F7',
-    overflow: 'hidden',
-  },
-  headerProfileAvatar: {
-    width: '100%',
-    height: '100%',
   },
   categoriesRow: {
     height: 55,
     paddingVertical: 10,
   },
   catPill: {
-    paddingHorizontal: 20,
-    paddingVertical: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 7,
     borderRadius: 20,
-    backgroundColor: '#111',
-    marginRight: 10,
-    borderWidth: 1,
-    borderColor: '#222',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    marginRight: 8,
   },
   catPillActive: {
     backgroundColor: VOEXITheme.colors.primary,
-    borderColor: VOEXITheme.colors.primary,
   },
   catText: {
     color: '#aaa',
@@ -576,7 +747,5 @@ const styles = StyleSheet.create({
   storyAvatar: { width: '100%', height: '100%', borderRadius: 30 },
   storyUser: { color: '#aaa', fontSize: 10, marginTop: 10, fontWeight: 'bold', letterSpacing: 0.5 },
   plusIconBox: { position: 'absolute', bottom: -2, right: -2, width: 22, height: 22, borderRadius: 11, backgroundColor: VOEXITheme.colors.primary, borderWidth: 3, borderColor: '#000', justifyContent: 'center', alignItems: 'center' },
-  newBadge: { position: 'absolute', bottom: -5, alignSelf: 'center', backgroundColor: VOEXITheme.colors.primary, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: '#000' },
-  newBadgeText: { color: '#fff', fontSize: 6, fontWeight: '900' },
-  divider: { height: 1, backgroundColor: '#0A0A0F', marginHorizontal: 20, marginBottom: 15 }
+  divider: { height: 1, backgroundColor: 'rgba(255, 255, 255, 0.16)', marginHorizontal: 0, marginBottom: 15 }
 });

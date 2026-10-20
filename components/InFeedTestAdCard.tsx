@@ -151,10 +151,19 @@ export default function InFeedTestAdCard({ itemHeight, isActive }: InFeedAdProps
             />
           ) : (
             <View style={styles.simulatedMediaCard}>
+              <Image
+                source={{ uri: 'https://images.unsplash.com/photo-1614850523296-d8c1af93d400?w=800&fit=crop' }}
+                style={StyleSheet.absoluteFillObject}
+                contentFit="cover"
+              />
+              <LinearGradient
+                colors={['transparent', 'rgba(0,0,0,0.85)']}
+                style={StyleSheet.absoluteFillObject}
+              />
               <View style={styles.simulatedLogoBg}>
-                <FontAwesome5 name="google" size={28} color="#00D4FF" />
+                <FontAwesome5 name="google" size={24} color="#00D4FF" />
               </View>
-              <Text style={styles.simulatedTitle}>Google AdMob Test Placement</Text>
+              <Text style={styles.simulatedTitle}>Google AdMob Sponsored Placement</Text>
               <Text style={styles.simulatedSub}>Unit ID: {GOOGLE_TEST_ADS.BANNER}</Text>
             </View>
           )}

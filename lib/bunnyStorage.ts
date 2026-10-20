@@ -1,11 +1,59 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
+import { Platform } from 'react-native';
 
 let LOCAL_MEDIA_SERVER_IP = '192.168.31.39';
 const LOCAL_MEDIA_SERVER_PORT = '8080';
 
 export const getLocalMediaServerUrl = (): string => {
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.hostname) {
+    const host = window.location.hostname;
+    const protocol = window.location.protocol || 'http:';
+    if (host !== 'localhost' && host !== '127.0.0.1' && !host.startsWith('192.168.')) {
+      return `${protocol}//${host}`;
+    }
+  }
   return `http://${LOCAL_MEDIA_SERVER_IP}:${LOCAL_MEDIA_SERVER_PORT}`;
+};
+
+/**
+ * HIGH-SECURITY LOCAL SERVER 2 ASSET UPLINK
+ * Saves card background photos & custom logos as physical files on Local Server 2.
+ */
+export const uploadAssetToLocalServer = async (
+  uri: string,
+  type: 'card_bg' | 'logo' | 'asset' = 'asset'
+): Promise<string | null> => {
+  try {
+    if (!uri || uri.startsWith('http://') || uri.startsWith('https://')) {
+      return uri;
+    }
+
+    const localServerUrl = getLocalMediaServerUrl();
+    const base64Data = await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64
+    });
+
+    const filename = `${type}_${Date.now()}_${Math.floor(Math.random() * 1000)}.png`;
+
+    const res = await fetch(`${localServerUrl}/api/upload-asset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        filename,
+        base64Data,
+        type
+      })
+    }).then(r => r.json()).catch(() => null);
+
+    if (res && res.success && res.url) {
+      console.log(`🔐 [LOCAL SERVER 2] Saved high-security ${type} asset:`, res.url);
+      return res.url;
+    }
+  } catch (e) {
+    console.warn('[LOCAL SERVER 2] Asset upload warning:', e);
+  }
+  return null;
 };
 
 const prepareFileUri = async (inputUri: string, ext: string): Promise<string> => {
@@ -36,7 +84,8 @@ export const uploadToLocalMediaServer = async (
   categoryStr?: string,
   audioUrlStr?: string,
   audioTitleStr?: string,
-  audioArtistStr?: string
+  audioArtistStr?: string,
+  mediaUrlsArr?: string[]
 ): Promise<string> => {
   try {
     console.log('[LOCAL MEDIA SERVER] Processing local media asset A to Z...', uri);
@@ -60,9 +109,13 @@ export const uploadToLocalMediaServer = async (
     // Ensure content:// URIs are cached into file:// URIs for Android compatibility
     const uploadFileUri = await prepareFileUri(uri, ext);
 
-    const fileName = `VX_${Date.now()}_${Math.floor(Math.random() * 1000)}.${ext}`;
+    const isStoryAsset = (categoryStr && (categoryStr.toUpperCase() === 'STORY' || categoryStr.toUpperCase() === 'STORY_MINI')) || resourceType === 'story';
+    const isReelAsset = (categoryStr && categoryStr.toUpperCase() === 'REELS') || resourceType === 'reel';
+
+    const fileNamePrefix = isStoryAsset ? 'story' : (isReelAsset ? 'reel' : 'VX');
+    const fileName = `${fileNamePrefix}_${Date.now()}_${Math.floor(Math.random() * 1000)}.${ext}`;
     const localServerUrl = getLocalMediaServerUrl();
-    const targetCategory = categoryStr || (resourceType === 'audio' ? 'SOUNDS' : (resourceType === 'image' ? 'PHOTOS' : 'ENTERTAINMENT'));
+    const targetCategory = isStoryAsset ? 'STORY' : (isReelAsset ? 'REELS' : (categoryStr || (resourceType === 'audio' ? 'SOUNDS' : (resourceType === 'image' ? 'PHOTOS' : 'ENTERTAINMENT'))));
 
     const uploadTypeVal = (FileSystem && FileSystem.FileSystemUploadType && FileSystem.FileSystemUploadType.BINARY_CONTENT !== undefined)
       ? FileSystem.FileSystemUploadType.BINARY_CONTENT
@@ -70,6 +123,8 @@ export const uploadToLocalMediaServer = async (
 
     const cleanTitle = titleStr || fileName.replace(/\.[^/.]+$/, '').replace(/_/g, ' ');
     const cleanUploader = uploaderStr ? (uploaderStr.startsWith('@') ? uploaderStr : '@' + uploaderStr) : '@admin_creator';
+
+    const mediaUrlsHeaderVal = mediaUrlsArr && mediaUrlsArr.length > 0 ? JSON.stringify(mediaUrlsArr) : '';
 
     // 1. High-Performance Direct Binary Upload via FileSystem.uploadAsync
     try {
@@ -86,7 +141,8 @@ export const uploadToLocalMediaServer = async (
           'x-description': descStr || '',
           'x-audio-url': audioUrlStr || '',
           'x-audio-title': audioTitleStr || '',
-          'x-audio-artist': audioArtistStr || ''
+          'x-audio-artist': audioArtistStr || '',
+          'x-media-urls': mediaUrlsHeaderVal
         }
       });
 
@@ -121,7 +177,8 @@ export const uploadToLocalMediaServer = async (
           'x-description': descStr || '',
           'x-audio-url': audioUrlStr || '',
           'x-audio-title': audioTitleStr || '',
-          'x-audio-artist': audioArtistStr || ''
+          'x-audio-artist': audioArtistStr || '',
+          'x-media-urls': mediaUrlsHeaderVal
         },
       });
 
@@ -158,14 +215,15 @@ export const uploadToBunny = async (
   categoryStr?: string,
   audioUrlStr?: string,
   audioTitleStr?: string,
-  audioArtistStr?: string
+  audioArtistStr?: string,
+  mediaUrlsArr?: string[]
 ): Promise<string> => {
   if (onProgress) {
     onProgress(50);
     setTimeout(() => onProgress(100), 200);
   }
 
-  return await uploadToLocalMediaServer(uri, resourceType, titleStr, uploaderStr, descStr, categoryStr, audioUrlStr, audioTitleStr, audioArtistStr);
+  return await uploadToLocalMediaServer(uri, resourceType, titleStr, uploaderStr, descStr, categoryStr, audioUrlStr, audioTitleStr, audioArtistStr, mediaUrlsArr);
 };
 
 export const deleteFromBunny = async (cdnUrl: string): Promise<boolean> => {

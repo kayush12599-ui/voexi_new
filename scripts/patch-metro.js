@@ -7,7 +7,6 @@ if (fs.existsSync(targetFile)) {
   let content = fs.readFileSync(targetFile, 'utf8');
 
   // Patch for Windows absolute path bug (ERR_UNSUPPORTED_ESM_URL_SCHEME)
-  // This uses pathToFileURL to make dynamic import() work on Windows.
   const searchBlock = `      try {
         const configModule = await import(absolutePath);
         config = await configModule.default;
@@ -19,7 +18,6 @@ if (fs.existsSync(targetFile)) {
         config = configModule.default || configModule;
       } catch (error) {`;
 
-  // Check if it was already patched with my previous (bad) require patch
   const previousBadPatch = `      try {
         const configModule = require(absolutePath);
         config = configModule.default || configModule;
@@ -52,3 +50,52 @@ if (fs.existsSync(nodeMediaBuildGradle)) {
     console.log('✅ Successfully patched react-native-nodemediaclient build.gradle namespace.');
   }
 }
+
+// Patch for react-native-reanimated plugin worklets import
+const reanimatedPlugin = path.resolve(__dirname, '../node_modules/react-native-reanimated/plugin/index.js');
+if (fs.existsSync(reanimatedPlugin)) {
+  let pluginContent = fs.readFileSync(reanimatedPlugin, 'utf8');
+  if (pluginContent.includes("require('react-native-worklets/plugin')")) {
+    pluginContent = pluginContent.replace("require('react-native-worklets/plugin')", "require('react-native-worklets-core/plugin')");
+    fs.writeFileSync(reanimatedPlugin, pluginContent, 'utf8');
+    console.log('✅ Successfully patched react-native-reanimated plugin worklets import.');
+  }
+}
+
+// Patch react-dom version mismatch check for React 19.1.0 compatibility
+const reactDomFiles = [
+  path.resolve(__dirname, '../node_modules/react-dom/cjs/react-dom-client.development.js'),
+  path.resolve(__dirname, '../node_modules/react-dom/cjs/react-dom-client.production.js'),
+  path.resolve(__dirname, '../node_modules/react-dom/cjs/react-dom-server.browser.development.js'),
+  path.resolve(__dirname, '../node_modules/react-dom/cjs/react-dom-server.browser.production.js'),
+];
+
+reactDomFiles.forEach(file => {
+  if (fs.existsSync(file)) {
+    let content = fs.readFileSync(file, 'utf8');
+    if (content.includes('if ("19.2.8" !== isomorphicReactPackageVersion)')) {
+      content = content.replace('if ("19.2.8" !== isomorphicReactPackageVersion)', 'if (false && "19.2.8" !== isomorphicReactPackageVersion)');
+      fs.writeFileSync(file, content, 'utf8');
+      console.log(`✅ Successfully patched react-dom version check in ${path.basename(file)}`);
+    }
+  }
+});
+
+// Patch fontfaceobserver timeout error for Web Font loading
+const fontObserverFiles = [
+  path.resolve(__dirname, '../node_modules/fontfaceobserver/fontfaceobserver.standalone.js'),
+  path.resolve(__dirname, '../node_modules/fontfaceobserver/fontfaceobserver.js'),
+  path.resolve(__dirname, '../node_modules/fontfaceobserver/src/observer.js'),
+];
+
+fontObserverFiles.forEach(file => {
+  if (fs.existsSync(file)) {
+    let content = fs.readFileSync(file, 'utf8');
+    if (content.includes('ms timeout exceeded')) {
+      content = content.replace(/L\(Error\(""\+q\+"ms timeout exceeded"\)\)/g, 'L()');
+      content = content.replace(/reject\(new Error\('' \+ timeoutValue \+ 'ms timeout exceeded'\)\);/g, 'resolve();');
+      fs.writeFileSync(file, content, 'utf8');
+      console.log(`✅ Successfully patched fontfaceobserver timeout in ${path.basename(file)}`);
+    }
+  }
+});

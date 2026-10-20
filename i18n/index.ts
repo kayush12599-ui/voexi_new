@@ -31,7 +31,6 @@ const RESOURCES = {
   zh: { translation: zh },
   it: { translation: it },
   tr: { translation: tr },
-  // Stubs for other languages (will fallback to en if missing)
   te: { translation: en }, mr: { translation: en }, ta: { translation: en },
   gu: { translation: en }, kn: { translation: en }, ml: { translation: en },
   pa: { translation: en }, ur: { translation: en }, as: { translation: en },
@@ -57,8 +56,13 @@ export const initI18n = async () => {
     if (savedLanguage) {
       await i18n.changeLanguage(savedLanguage);
     } else {
-      const locales = Localization.getLocales();
-      const deviceLang = locales[0]?.languageCode?.split('-')[0];
+      let deviceLang = 'en';
+      try {
+        const locales = Localization.getLocales();
+        if (locales && locales.length > 0) {
+          deviceLang = locales[0]?.languageCode?.split('-')[0] || 'en';
+        }
+      } catch {}
       if (deviceLang && RESOURCES[deviceLang as keyof typeof RESOURCES]) {
         await i18n.changeLanguage(deviceLang);
       }

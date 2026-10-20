@@ -6,6 +6,11 @@ import { LinearGradient } from 'expo-linear-gradient';
 export const VoexiIcon = ({ size = 42, isLight }: { size?: number; isLight?: boolean }) => {
   const borderRadius = size * 0.28;
 
+  let logoSource: any = { uri: 'https://iafmgtldihnhcvrfveev.supabase.co/storage/v1/object/public/assets/logo_pro.png' };
+  try {
+    logoSource = require('../assets/images/logo_pro.png');
+  } catch (e) {}
+
   return (
     <LinearGradient
       colors={['#A855F7', '#EC4899', '#3B82F6']}
@@ -22,7 +27,7 @@ export const VoexiIcon = ({ size = 42, isLight }: { size?: number; isLight?: boo
     >
       <View style={[styles.inner, { borderRadius: borderRadius - 2, backgroundColor: isLight ? '#FFFFFF' : '#0A0014' }]}>
         <ExpoImage
-          source={require('../assets/images/logo_pro.png')}
+          source={logoSource}
           style={{ width: '100%', height: '100%' }}
           contentFit="cover"
           transition={200}

@@ -13,7 +13,6 @@ import * as Haptics from 'expo-haptics';
 import { useLanguage } from '../../hooks/useLanguage';
 import { BiometricService } from '../../lib/biometricService';
 
-WebBrowser.maybeCompleteAuthSession();
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function Login() {
@@ -24,6 +23,7 @@ export default function Login() {
   const router = useRouter();
 
   useEffect(() => {
+    try { WebBrowser.maybeCompleteAuthSession(); } catch (e) {}
     AsyncStorage.getItem('last_email').then(val => {
       if (val) setEmail(val);
     });
@@ -217,7 +217,7 @@ export default function Login() {
   return (
     <View style={styles.container}>
       <LinearGradient colors={['#100', '#000']} style={StyleSheet.absoluteFill} />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, width: '100%', minHeight: '100%' }}>
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           <View style={styles.header}>
             <View style={styles.logoCircle}><Text style={styles.logoV}>V</Text></View>
@@ -301,8 +301,8 @@ export default function Login() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
-  scrollContent: { padding: 24, paddingTop: 80, alignItems: 'center' },
+  container: { flex: 1, width: '100%', minHeight: '100vh', backgroundColor: '#000' },
+  scrollContent: { padding: 24, paddingTop: 80, alignItems: 'center', width: '100%', maxWidth: 480, alignSelf: 'center' },
   header: { alignItems: 'center', marginBottom: 40 },
   logoCircle: { width: 80, height: 80, borderRadius: 25, backgroundColor: '#000', borderWidth: 2, borderColor: VOEXITheme.colors.secondary, alignItems: 'center', justifyContent: 'center' },
   logoV: { fontSize: 48, fontWeight: 'bold', color: '#fff' },

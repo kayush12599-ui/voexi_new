@@ -7,23 +7,146 @@ import { useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { LinearGradient } from 'expo-linear-gradient';
 import { VOEXITheme } from '../constants/theme';
-import { recordView, recordSave, recordLike } from '../lib/earnings';
+import { recordView, recordSave, recordLike, recordShare, recordRetention, updateWatchTime } from '../lib/earnings';
 import { useFollow } from '../lib/social';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
 
 const { width } = Dimensions.get('window');
+
+const sanitizeCreatorInfo = (rawName?: string | null, rawUser?: string | null) => {
+  let name = (rawName || '').trim();
+  let username = (rawUser || '').trim().toLowerCase().replace('@', '');
+
+  const isGeneric = !name || name === 'VOEXI Creator' || name === 'VOEXI Broadcaster' || name === 'broadcaster' || name === 'admin_creator' || name.startsWith('user_') || name === 'user' || name === 'Creator';
+
+  if (isGeneric) {
+    name = 'VOEXI Official';
+    username = 'voexi_official';
+  } else {
+    if (!username || username === 'broadcaster' || username.startsWith('user_')) {
+      username = name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    }
+  }
+
+  return { name, username };
+};
+
+const getValidAvatarUrl = (rawUrl?: string | null, name: string = 'User'): string => {
+  if (!rawUrl || typeof rawUrl !== 'string') {
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=A855F7&color=fff&bold=true`;
+  }
+  let url = rawUrl.trim();
+  if (url === '' || url === 'null' || url === 'undefined') {
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=A855F7&color=fff&bold=true`;
+  }
+  if (url.startsWith('//')) {
+    return 'https:' + url;
+  }
+  if (url.startsWith('/uploads/') || url.startsWith('/files/') || url.startsWith('/avatar/') || url.startsWith('/logos/')) {
+    return `http://192.168.31.39:8080${url}`;
+  }
+  if (url.startsWith('uploads/') || url.startsWith('files/') || url.startsWith('avatar/') || url.startsWith('logos/')) {
+    return `http://192.168.31.39:8080/${url}`;
+  }
+  if (url.startsWith('/')) {
+    return `https://voexi.b-cdn.net${url}`;
+  }
+  if (!url.startsWith('http') && !url.startsWith('file://') && !url.startsWith('content://')) {
+    return `https://voexi.b-cdn.net/${url}`;
+  }
+  return url;
+};
 
 const isValidUuid = (id: string | null | undefined): boolean => {
   if (!id) return false;
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 };
 
+const ActiveReelVideoPlayer = memo(({ source, playbackSpeed, autoScrollEnabled, isPaused, selectedQuality, onVideoEnd, cropX, cropY, cropScale, cropFit, aspect_ratio, itemId }: any) => {
+  const player = useVideoPlayer(source, (p) => {
+    if (p) {
+      p.loop = !autoScrollEnabled;
+      try { p.playbackRate = playbackSpeed; } catch (e) {}
+    }
+  });
+
+  useEffect(() => {
+    if (!player) return;
+    try {
+      if (source && typeof (player as any).replace === 'function') {
+        try { (player as any).replace(source); } catch (e) {}
+      }
+
+      // Native Hardware Bitrate & Network Quality Limiter
+      let bitRate = 0;
+      if (selectedQuality === '1080p') bitRate = 6000000;
+      else if (selectedQuality === '720p') bitRate = 2500000;
+      else if (selectedQuality === '480p') bitRate = 1000000;
+      else if (selectedQuality === '360p') bitRate = 500000;
+
+      if (bitRate > 0 && typeof (player as any).preferredPeakBitRate !== 'undefined') {
+        try { (player as any).preferredPeakBitRate = bitRate; } catch (e) {}
+      }
+
+      player.loop = !autoScrollEnabled;
+      try { player.playbackRate = playbackSpeed; } catch (e) {}
+      if (isPaused) {
+        player.pause();
+      } else {
+        const res = player.play();
+        if (res && typeof res.catch === 'function') res.catch(() => {});
+      }
+    } catch (e) {
+      console.warn("[Reel Player Guard]:", e);
+    }
+  }, [player, source, selectedQuality, autoScrollEnabled, playbackSpeed, isPaused]);
+
+  useEffect(() => {
+    if (!player || !onVideoEnd) return;
+    const sub = player.addListener('playToEnd', () => {
+      if (autoScrollEnabled) {
+        onVideoEnd();
+      }
+    });
+    return () => {
+      try { sub?.remove?.(); } catch (e) {}
+    };
+  }, [player, autoScrollEnabled, onVideoEnd]);
+
+  return (
+    <View style={{ flex: 1, overflow: 'hidden', justifyContent: 'center', alignItems: 'center' }}>
+      <View style={{
+        width: '100%',
+        height: '100%',
+        transform: [
+          { translateX: cropX || 0 },
+          { translateY: cropY || 0 },
+          { scale: cropScale || 1.0 }
+        ]
+      }}>
+        <VideoView
+          key={`feed_player_${itemId}`}
+          player={player}
+          style={StyleSheet.absoluteFillObject}
+          contentFit={cropFit || "cover"}
+          nativeControls={false}
+        />
+      </View>
+    </View>
+  );
+});
+
 const VideoFeedItem = memo(({ item, isActive, isScreenFocused, itemHeight, currentUserId, onCommentPress, onReportPress, ghostMode, setGhostMode, autoScrollEnabled, setAutoScroll, gestureEnabled, setGestureEnabled, playbackSpeed, setPlaybackSpeed, onAutoScrollNext }: any) => {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const bottomTabBarHeight = 52 + (insets.bottom > 0 ? insets.bottom : (Platform.OS === 'android' ? 12 : 0));
+  const overlayBottomPadding = bottomTabBarHeight + 12;
   const [optionsModal, setOptionsModal] = useState(false);
+  const [selectedQuality, setSelectedQuality] = useState<string>('1080p');
   const [isPaused, setIsPaused] = useState(false);
   const playPauseAnim = useRef(new Animated.Value(0)).current;
   const viewCounted = useRef(false);
@@ -33,18 +156,15 @@ const VideoFeedItem = memo(({ item, isActive, isScreenFocused, itemHeight, curre
   const heartOpacity = useRef(new Animated.Value(0)).current;
 
   const togglePlayPause = () => {
-    if (!player) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    if (isPaused) {
-      try { player.play(); } catch(e){}
-      setIsPaused(false);
-      Animated.timing(playPauseAnim, { toValue: 0, duration: 250, useNativeDriver: true }).start();
-    } else {
-      try { player.pause(); } catch(e){}
-      setIsPaused(true);
-      playPauseAnim.setValue(1);
-    }
+    setIsPaused(prev => {
+      const next = !prev;
+      Animated.timing(playPauseAnim, { toValue: next ? 1 : 0, duration: 250, useNativeDriver: true }).start();
+      return next;
+    });
   };
+
+  const tapTimerRef = useRef<any>(null);
 
   const handleScreenPress = () => {
     if (ghostMode) {
@@ -54,28 +174,38 @@ const VideoFeedItem = memo(({ item, isActive, isScreenFocused, itemHeight, curre
     }
 
     const now = Date.now();
-    const DOUBLE_TAP_DELAY = 280;
+    const DOUBLE_TAP_DELAY = 300;
 
-    if (now - lastTapRef.current < DOUBLE_TAP_DELAY) {
+    if (lastTapRef.current && (now - lastTapRef.current) < DOUBLE_TAP_DELAY) {
+      // --- 2 CLICKS (DOUBLE TAP) LIKE DETECTED ---
+      if (tapTimerRef.current) {
+        clearTimeout(tapTimerRef.current);
+        tapTimerRef.current = null;
+      }
+      lastTapRef.current = 0;
+
       if (!isLiked) {
         handleLike();
+      } else {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
       }
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
 
       heartScale.setValue(0.2);
       heartOpacity.setValue(1);
       Animated.parallel([
-        Animated.spring(heartScale, { toValue: 1.2, friction: 3, useNativeDriver: true }),
-        Animated.timing(heartOpacity, { toValue: 0, duration: 700, delay: 200, useNativeDriver: true })
+        Animated.spring(heartScale, { toValue: 1.3, friction: 3, useNativeDriver: true }),
+        Animated.timing(heartOpacity, { toValue: 0, duration: 600, delay: 250, useNativeDriver: true })
       ]).start();
-
-      lastTapRef.current = 0;
     } else {
+      // --- 1 CLICK (SINGLE TAP) PAUSE / PLAY DETECTED ---
       lastTapRef.current = now;
-      setTimeout(() => {
-        if (Date.now() - lastTapRef.current >= DOUBLE_TAP_DELAY && lastTapRef.current !== 0) {
-          togglePlayPause();
-        }
+      if (tapTimerRef.current) {
+        clearTimeout(tapTimerRef.current);
+      }
+      tapTimerRef.current = setTimeout(() => {
+        togglePlayPause();
+        lastTapRef.current = 0;
+        tapTimerRef.current = null;
       }, DOUBLE_TAP_DELAY);
     }
   };
@@ -91,12 +221,20 @@ const VideoFeedItem = memo(({ item, isActive, isScreenFocused, itemHeight, curre
     return url.replace('videosvoexi.b-cdn.net', 'voexi.b-cdn.net').replace('VOEXI.b-cdn.net', 'voexi.b-cdn.net');
   }, [item]);
 
+  // ⚡ REAL-TIME QUALITY STREAM SWITCHER
+  const qualityStreamUrl = useMemo(() => {
+    if (!finalUrl) return '';
+    if (selectedQuality && selectedQuality !== '1080p' && selectedQuality !== 'auto') {
+      if (finalUrl.includes('playlist.m3u8')) {
+        return finalUrl.replace('playlist.m3u8', `${selectedQuality}.m3u8`);
+      }
+      const separator = finalUrl.includes('?') ? '&' : '?';
+      return `${finalUrl}${separator}res=${selectedQuality}`;
+    }
+    return finalUrl;
+  }, [finalUrl, selectedQuality]);
+
   const shouldPlay = isActive && isScreenFocused && Boolean(finalUrl);
-  // ⚡ 60 FPS PERFORMANCE OPTIMIZATION: Only initialize native video player for active video
-  const playerSource = shouldPlay ? finalUrl : '';
-  const player = useVideoPlayer(playerSource, (p) => {
-    if (p) p.loop = !autoScrollEnabled;
-  });
 
   const rotateAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -107,83 +245,31 @@ const VideoFeedItem = memo(({ item, isActive, isScreenFocused, itemHeight, curre
 
   const rotate = rotateAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
 
+  const watchStartTime = useRef<number | null>(null);
+
+  // VIEWER ATTENTION & RETENTION ALGORITHM
   useEffect(() => {
-    if (!player) return;
+    if (isActive && isScreenFocused) {
+      watchStartTime.current = Date.now();
+    } else if (watchStartTime.current && !item.id?.includes('dummy')) {
+      const dwellMs = Date.now() - watchStartTime.current;
+      const watchSeconds = dwellMs / 1000;
+      watchStartTime.current = null;
 
-    if (isActive && isScreenFocused && playerSource) {
-      setIsPaused(false);
-      playPauseAnim.setValue(0);
-      try {
-        player.loop = !autoScrollEnabled;
-        player.playbackRate = playbackSpeed;
-        try { (player as any).rate = playbackSpeed; } catch (e) {}
-        const res = player.play();
-        if (res && typeof res.catch === 'function') res.catch(() => {});
-
-        if (!viewCounted.current && !item.id?.includes('dummy')) {
-          setTimeout(() => { recordView(item.id, item.user_id, currentUserId || undefined); viewCounted.current = true; }, 3000);
+      if (dwellMs < 800) {
+        // FAST SKIP ALGORITHM SIGNAL (<0.8s): Classified as Skip, do not count engaged view
+        recordRetention(item.id, currentUserId || null, false);
+      } else {
+        // ATTENTIVE STAY ALGORITHM SIGNAL (>=1.2s+): Classified as Engaged View & Interest
+        if (!viewCounted.current) {
+          recordView(item.id, item.user_id, currentUserId || undefined);
+          viewCounted.current = true;
         }
-      } catch (e) {
-        console.warn("[VideoFeedItem Play Guard]:", e);
+        recordRetention(item.id, currentUserId || null, true);
+        updateWatchTime(item.user_id, item.id, watchSeconds, 30);
       }
-    } else {
-      try {
-        player.pause();
-      } catch (e) {}
     }
-  }, [player, isActive, isScreenFocused, playerSource, autoScrollEnabled, playbackSpeed]);
-
-  useEffect(() => {
-    if (!player) return;
-    const errorSub = player.addListener('error', (e) => {
-      console.warn("[VideoFeedItem Player Error]:", e);
-    });
-    return () => {
-      try { errorSub?.remove?.(); } catch (e) {}
-    };
-  }, [player]);
-
-  const autoScrollTriggered = useRef(false);
-
-  useEffect(() => {
-    autoScrollTriggered.current = false;
-  }, [isActive, item.id]);
-
-  // Auto-scroll listener when video reaches completion
-  useEffect(() => {
-    if (!player) return;
-
-    const triggerNext = () => {
-      if (autoScrollEnabled && !autoScrollTriggered.current) {
-        autoScrollTriggered.current = true;
-        if (onAutoScrollNext) {
-          onAutoScrollNext();
-        }
-      }
-    };
-
-    // Official native completion listener
-    const subPlayToEnd = player.addListener('playToEnd', () => {
-      triggerNext();
-    });
-
-    // Precision fallback listener: requires currentTime > 1.5s AND reached duration end
-    const subTimeUpdate = player.addListener('timeUpdate', ({ currentTime }: any) => {
-      if (
-        autoScrollEnabled &&
-        player.duration > 2 &&
-        currentTime > 1.5 &&
-        currentTime >= player.duration - 0.3
-      ) {
-        triggerNext();
-      }
-    });
-
-    return () => {
-      try { subPlayToEnd?.remove?.(); } catch (e) {}
-      try { subTimeUpdate?.remove?.(); } catch (e) {}
-    };
-  }, [player, autoScrollEnabled, onAutoScrollNext]);
+  }, [isActive, isScreenFocused, item.id, item.user_id, currentUserId]);
 
   const { isFollowing, toggleFollow } = useFollow(currentUserId, item.user_id);
   const [isLiked, setIsLiked] = useState(false);
@@ -227,6 +313,7 @@ const VideoFeedItem = memo(({ item, isActive, isScreenFocused, itemHeight, curre
         message: `Watch @${creatorUsername} on VOEXI!\n\n${item.title || 'Reel'}\n${finalUrl}`,
         url: finalUrl
       });
+      await recordShare(item.id);
       fetch('http://192.168.31.39:8080/api/event', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -263,13 +350,24 @@ const VideoFeedItem = memo(({ item, isActive, isScreenFocused, itemHeight, curre
     return null;
   }, [item]);
 
-  const creatorChannelName = creatorProfile?.channel_name || creatorProfile?.username || item?.channel_name || item?.username || 'VOEXI CREATOR';
-  const creatorUsername = creatorProfile?.username || creatorProfile?.channel_name || item?.username || item?.channel_name || 'creator';
-  const creatorAvatar = creatorProfile?.avatar_url || item?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(creatorChannelName)}&background=A855F7&color=fff&bold=true`;
+  const rawCreatorName = creatorProfile?.channel_name || creatorProfile?.username || item?.channel_name || item?.username || item?.uploader || 'VOEXI Official';
+  const rawCreatorUsername = creatorProfile?.username || creatorProfile?.channel_name || item?.username || item?.channel_name || 'voexi_official';
+  const { name: creatorChannelName, username: creatorUsername } = useMemo(() => sanitizeCreatorInfo(rawCreatorName, rawCreatorUsername), [rawCreatorName, rawCreatorUsername]);
+
+  const rawLogo = creatorProfile?.custom_logo_url || creatorProfile?.logo_url || creatorProfile?.avatar_url || item?.custom_logo_url || item?.logo_url || item?.avatar_url || item?.user_avatar || item?.uploader_avatar;
+  const creatorAvatar = getValidAvatarUrl(rawLogo, creatorChannelName);
+
+  const cleanTitle = useMemo(() => {
+    let raw = item.title || item.description || 'VOEXI SIGNAL';
+    if (raw.endsWith('.mp4') || raw.endsWith('.mov') || raw.endsWith('.m3u8') || raw.startsWith('VID_') || raw.startsWith('file_') || raw.startsWith('reel_')) {
+      raw = raw.replace(/\.[^/.]+$/, "").replace(/_/g, " ").replace(/-/g, " ");
+      raw = raw.replace(/VID\s*\d+/gi, "VOEXI Studio Release").replace(/recording\s*\d+/gi, "Neural Spectrum Feed").replace(/reel\s*\d+/gi, "VOEXI Reel Release");
+    }
+    return raw;
+  }, [item.title, item.description]);
 
   return (
-    <View style={{ height: itemHeight, width: width, backgroundColor: '#000', paddingVertical: 12, paddingHorizontal: 6, overflow: 'hidden' }}>
-      <View style={{ flex: 1, borderRadius: 24, backgroundColor: '#0A0A0F', overflow: 'hidden', borderWidth: 1, borderColor: '#1A1A24', position: 'relative' }}>
+    <View style={{ height: itemHeight, width: width, backgroundColor: '#000', overflow: 'hidden', position: 'relative' }}>
       {(item.thumbnail_url || item.media_url) && (
         <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
           <Image
@@ -287,27 +385,29 @@ const VideoFeedItem = memo(({ item, isActive, isScreenFocused, itemHeight, curre
         </View>
       )}
 
-      {isActive && isScreenFocused && playerSource && player && (
-        <View style={{ flex: 1, overflow: 'hidden', justifyContent: 'center', alignItems: 'center' }}>
-          <View style={{
-            width: '100%',
-            height: '100%',
-            transform: [
-              { translateX: item.crop_x || 0 },
-              { translateY: item.crop_y || 0 },
-              { scale: item.crop_scale || 1.0 }
-            ]
-          }}>
-            <VideoView
-              key={`feed_player_${item.id}`}
-              player={player}
-              style={StyleSheet.absoluteFillObject}
-              contentFit={item.crop_fit || (item.aspect_ratio && item.aspect_ratio > 1.2 ? "contain" : "cover")}
-              nativeControls={false}
-            />
-          </View>
-        </View>
-      )}
+      {shouldPlay ? (
+        <ActiveReelVideoPlayer
+          key={`reel_player_${selectedQuality}_${item.id}`}
+          source={qualityStreamUrl}
+          playbackSpeed={playbackSpeed}
+          autoScrollEnabled={autoScrollEnabled}
+          isPaused={isPaused}
+          selectedQuality={selectedQuality}
+          onVideoEnd={onAutoScrollNext}
+          cropX={item.crop_x}
+          cropY={item.crop_y}
+          cropScale={item.crop_scale}
+          cropFit={item.crop_fit}
+          aspect_ratio={item.aspect_ratio}
+          itemId={item.id}
+        />
+      ) : (item.thumbnail_url || item.media_url) ? (
+        <Image
+          source={{ uri: item.thumbnail_url || item.media_url }}
+          style={StyleSheet.absoluteFillObject}
+          contentFit="cover"
+        />
+      ) : null}
 
       <Pressable style={StyleSheet.absoluteFill} onPress={handleScreenPress}>
         <Animated.View style={[styles.centerPlayBtn, { opacity: playPauseAnim, transform: [{ scale: playPauseAnim }] }]} pointerEvents="none">
@@ -351,7 +451,7 @@ const VideoFeedItem = memo(({ item, isActive, isScreenFocused, itemHeight, curre
         </TouchableOpacity>
       )}
 
-      <View style={[styles.overlay, ghostMode && { opacity: 0 }]} pointerEvents={ghostMode ? 'none' : 'auto'}>
+      <View style={[styles.overlay, { paddingBottom: overlayBottomPadding }, ghostMode && { opacity: 0 }]} pointerEvents={ghostMode ? 'none' : 'auto'}>
         <View style={styles.bottomInfo}>
           <View style={styles.uploaderRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -376,6 +476,7 @@ const VideoFeedItem = memo(({ item, isActive, isScreenFocused, itemHeight, curre
                 <Text style={styles.name} numberOfLines={1}>
                   @{creatorUsername}
                 </Text>
+                <Ionicons name="checkmark-circle" size={13} color="#00F2FE" />
                 <View style={styles.onlineDot} />
                 {item.user_id && currentUserId !== item.user_id && (
                   <TouchableOpacity
@@ -410,7 +511,7 @@ const VideoFeedItem = memo(({ item, isActive, isScreenFocused, itemHeight, curre
             </View>
           </View>
 
-          <Text style={styles.titleText}>{item.title || 'VOEXI SIGNAL'}</Text>
+          <Text style={styles.titleText}>{cleanTitle}</Text>
           <Text style={styles.descText} numberOfLines={2}>{item.description || ''}</Text>
         </View>
 
@@ -447,7 +548,7 @@ const VideoFeedItem = memo(({ item, isActive, isScreenFocused, itemHeight, curre
 
           <TouchableOpacity style={styles.sideBtn} onPress={() => router.push(`/remix/${item.id}`)}>
              <Animated.View style={[styles.diskWrapper, { transform: [{ rotate }] }]}>
-                <Image source={{ uri: item.profiles?.avatar_url || 'https://via.placeholder.com/100' }} style={styles.diskCover} />
+                <Image source={{ uri: creatorAvatar }} style={styles.diskCover} />
              </Animated.View>
              <Text style={styles.sideBtnText}>REMIX</Text>
           </TouchableOpacity>
@@ -592,6 +693,33 @@ const VideoFeedItem = memo(({ item, isActive, isScreenFocused, itemHeight, curre
               </View>
 
               <View style={styles.sheetDivider} />
+              <Text style={styles.sheetSubLabel}>REELS STREAM QUALITY</Text>
+              <View style={styles.speedRow}>
+                {[
+                  { id: '1080p', label: '1080p HD 💎' },
+                  { id: '720p', label: '720p ⚡' },
+                  { id: '480p', label: '480p 📱' },
+                  { id: '360p', label: '360p 🔋' },
+                ].map((q) => (
+                  <TouchableOpacity
+                    key={q.id}
+                    style={[styles.speedPill, selectedQuality === q.id && styles.speedPillActive]}
+                    onPress={async () => {
+                      setSelectedQuality(q.id);
+                      setOptionsModal(false);
+                      await AsyncStorage.setItem('@reel_quality_pref', q.id);
+                      if (Haptics) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+                      Alert.alert("REELS STREAM QUALITY ⚡", `Quality updated to ${q.label}. Video stream is running smoothly!`);
+                    }}
+                  >
+                    <Text style={[styles.speedText, selectedQuality === q.id && styles.speedTextActive]}>
+                      {q.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <View style={styles.sheetDivider} />
               <Text style={styles.sheetSubLabel}>PRO TOOLS</Text>
 
               <View style={styles.switchRow}>
@@ -653,7 +781,6 @@ const VideoFeedItem = memo(({ item, isActive, isScreenFocused, itemHeight, curre
         </View>
       </Modal>
     </View>
-  </View>
 );
 });
 
@@ -664,8 +791,8 @@ const styles = StyleSheet.create({
   playIconCircle: { width: 72, height: 72, borderRadius: 36, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: 'rgba(255,255,255,0.8)' },
   centerHeartBtn: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', zIndex: 12 },
   heartGlow: { textShadowColor: '#FF017E', textShadowRadius: 25 },
-  overlay: { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', alignItems: 'flex-end', paddingBottom: Platform.OS === 'android' ? 80 : 95, paddingLeft: 10, paddingRight: 2 },
-  bottomInfo: { flex: 1, paddingRight: 4, paddingBottom: 15 },
+  overlay: { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', alignItems: 'flex-end', paddingLeft: 12, paddingRight: 4, zIndex: 20 },
+  bottomInfo: { flex: 1, paddingRight: 4, paddingBottom: 0 },
   uploaderRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
   miniAvatar: { width: 44, height: 44, borderRadius: 22, borderWidth: 1.5, borderColor: '#fff' },
   nameCol: { flex: 1 },

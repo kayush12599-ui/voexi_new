@@ -97,8 +97,9 @@ const InstagramPeekPreviewModal = ({ visible, item, onClose, onOpenFull, onLike 
 
           {/* Media Player / Image */}
           <View style={[styles.previewMediaBox, { aspectRatio: isReel ? 4 / 5 : 16 / 9 }]}>
-            {isVideo && player ? (
+            {isVideo && player && videoSource ? (
               <VideoView
+                key={videoSource}
                 player={player}
                 style={StyleSheet.absoluteFill}
                 contentFit="cover"
@@ -313,16 +314,41 @@ export default function UserProfileScreen() {
 
       const targetUserId = targetProfile?.id || rawId;
 
-      if (targetProfile) {
-        const rawProf = targetProfile;
+      // Server 2 Fallback for target profile card settings
+      let server2Profile: any = null;
+      try {
+        const s2Res = await fetch(`http://192.168.31.39:8080/api/profiles?id=${targetUserId}`).then(r => r.json()).catch(() => null);
+        if (s2Res?.success && s2Res?.profile) {
+          server2Profile = s2Res.profile;
+        }
+      } catch (e) {}
+
+      if (targetProfile || server2Profile) {
+        const rawProf = { ...targetProfile, ...server2Profile };
         const displayName = rawProf.channel_name || rawProf.username || 'broadcaster';
         const fallbackAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=A855F7&color=fff&bold=true`;
+
+        const cardBg = targetProfile?.card_background_uri || targetProfile?.card_bg_url || targetProfile?.custom_bg_uri || server2Profile?.card_background_uri || server2Profile?.card_bg_url || server2Profile?.custom_bg_uri;
+        const customLogo = targetProfile?.custom_logo_url || targetProfile?.logo_url || server2Profile?.custom_logo_url || server2Profile?.logo_url;
+        const cardTheme = targetProfile?.card_theme || server2Profile?.card_theme || 'default';
+        const blendGlow = (targetProfile?.blend_theme_glow !== undefined ? targetProfile?.blend_theme_glow : server2Profile?.blend_theme_glow) === true || (targetProfile?.blend_theme_glow === 'true' || server2Profile?.blend_theme_glow === 'true');
+        const primaryColor = targetProfile?.extracted_primary_color || server2Profile?.extracted_primary_color;
+        const accentColor = targetProfile?.extracted_accent_color || server2Profile?.extracted_accent_color;
 
         setProfile({
           ...rawProf,
           channel_name: displayName,
           username: rawProf.username || 'broadcaster',
           avatar_url: rawProf.avatar_url && rawProf.avatar_url.startsWith('http') ? rawProf.avatar_url : fallbackAvatar,
+          card_background_uri: cardBg,
+          card_bg_url: cardBg,
+          custom_bg_uri: cardBg,
+          custom_logo_url: customLogo,
+          logo_url: customLogo,
+          card_theme: cardTheme,
+          blend_theme_glow: blendGlow,
+          extracted_primary_color: primaryColor,
+          extracted_accent_color: accentColor,
         });
 
         if (rawProf.last_maintenance_at) {
@@ -364,10 +390,11 @@ export default function UserProfileScreen() {
 
       const fullUserPosts = fetchedPosts.map((p: any) => ({
         ...p,
-        profiles: p.profiles || targetProfile || {
-          channel_name: p.channel_name || p.username || 'VOEXI Broadcaster',
-          username: p.username || 'broadcaster',
-          avatar_url: p.avatar_url || ''
+        profiles: {
+          id: targetUserId,
+          channel_name: targetProfile?.channel_name || p.channel_name || p.username || 'VOEXI Creator',
+          username: targetProfile?.username || p.username || 'creator',
+          avatar_url: targetProfile?.avatar_url || p.avatar_url || ''
         }
       }));
 

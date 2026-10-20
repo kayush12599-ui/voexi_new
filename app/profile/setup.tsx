@@ -23,7 +23,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 
 import { supabase } from '../../lib/supabase';
-import { uploadToBunny } from '../../lib/bunnyStorage';
+import { uploadToBunny, getLocalMediaServerUrl } from '../../lib/bunnyStorage';
 import { useTheme } from '../../hooks/useTheme';
 import { COUNTRIES } from '../../constants/countries';
 import { VOEXITheme } from '../../constants/theme';
@@ -171,6 +171,7 @@ export default function ProfileSetup() {
         username: cleanUsername,
         bio: bio.trim(),
         avatar_url: finalAvatarUrl,
+        custom_logo_url: finalAvatarUrl,
         category: category,
         channel_category: category,
         gender: gender,
@@ -180,6 +181,7 @@ export default function ProfileSetup() {
         updated_at: new Date().toISOString()
       };
 
+      // 1. Save to Server 1 (Supabase Cloud DB)
       const { error } = await supabase.from('profiles').update(updatePayload).eq('id', activeUserId);
 
       if (error) {
@@ -188,6 +190,19 @@ export default function ProfileSetup() {
         }
         throw new Error(error.message);
       }
+
+      // 2. Dual-Sync Save to Server 2 (Local Media Server)
+      try {
+        const localServerUrl = getLocalMediaServerUrl();
+        fetch(`${localServerUrl}/api/profiles`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: activeUserId,
+            ...updatePayload
+          })
+        }).catch(() => {});
+      } catch (e) {}
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       Alert.alert('SAVED', 'Profile and category updated successfully.');

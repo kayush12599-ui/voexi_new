@@ -14,6 +14,42 @@ export const AuthService = {
   },
 
   /**
+   * Securely check if an email is already registered in VOEXI
+   */
+  async isEmailAlreadyRegistered(email: string): Promise<boolean> {
+    try {
+      const cleanEmail = email.trim().toLowerCase();
+      if (!cleanEmail) return false;
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id')
+        .ilike('email', cleanEmail)
+        .maybeSingle();
+
+      if (!error && data) return true;
+      return false;
+    } catch (e) {
+      return false;
+    }
+  },
+
+  /**
+   * Securely check if a username is already taken
+   */
+  async isUsernameTaken(username: string, excludeUserId?: string): Promise<boolean> {
+    try {
+      const cleanUser = username.trim().toLowerCase();
+      if (!cleanUser) return false;
+      let query = supabase.from('profiles').select('id').ilike('username', cleanUser);
+      if (excludeUserId) query = query.neq('id', excludeUserId);
+      const { data } = await query.maybeSingle();
+      return !!data;
+    } catch (e) {
+      return false;
+    }
+  },
+
+  /**
    * Generates a 12-digit Secure VX ID
    */
   async generateUniqueVxId(): Promise<string> {

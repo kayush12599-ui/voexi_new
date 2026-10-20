@@ -38,6 +38,7 @@ export default function StandardUpload() {
   const [step, setStep] = useState(isEditMode ? 2 : 1);
   const [type, setType] = useState<'Video' | 'Reels' | 'Photo' | 'Sound' | 'Letter'>((params.initialType as any) || 'Video');
   const [media, setMedia] = useState<string | null>(null);
+  const [mediaList, setMediaList] = useState<string[]>([]);
   const [title, setTitle] = useState((params.initialTitle as string) || '');
   const [description, setDescription] = useState((params.initialDescription as string) || '');
   const [loading, setLoading] = useState(false);
@@ -82,7 +83,7 @@ export default function StandardUpload() {
       );
       audioSoundRef.current = sound;
       setIsPlayingAudio(true);
-    } catch (e) {
+    } catch {
       setIsPlayingAudio(false);
       Alert.alert("Audio Error", "Unable to play selected audio file.");
     }
@@ -100,6 +101,7 @@ export default function StandardUpload() {
   useEffect(() => {
     if (params.soundUrl) {
       setMedia(params.soundUrl as string);
+      setMediaList([params.soundUrl as string]);
       if (params.soundName) {
         setTitle(params.soundName as string);
       }
@@ -127,16 +129,19 @@ export default function StandardUpload() {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
+        allowsMultipleSelection: true,
+        selectionLimit: 5,
         quality: 1,
       });
-      if (!result.canceled && result.assets[0]?.uri) {
-        setMedia(result.assets[0].uri);
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const uris = result.assets.map(a => a.uri).slice(0, 5);
+        setMediaList(uris);
+        setMedia(uris[0]);
         setType('Photo');
         setStep(2);
       }
-    } catch (e) {
-      Alert.alert("Error", "Failed to pick image from gallery");
+    } catch {
+      Alert.alert("Error", "Failed to pick images from gallery");
     }
   };
 
@@ -149,15 +154,17 @@ export default function StandardUpload() {
         return;
       }
       const result = await ImagePicker.launchCameraAsync({
-        allowsEditing: true,
+        allowsEditing: false,
         quality: 1,
       });
       if (!result.canceled && result.assets[0]?.uri) {
-        setMedia(result.assets[0].uri);
+        const newUri = result.assets[0].uri;
+        setMediaList(prev => [...prev.filter(u => u !== newUri), newUri].slice(0, 5));
+        setMedia(newUri);
         setType('Photo');
         setStep(2);
       }
-    } catch (e) {
+    } catch {
       Alert.alert("Error", "Failed to capture photo");
     }
   };
@@ -226,6 +233,8 @@ export default function StandardUpload() {
       setType('Letter'); setStep(2);
     } else if (selectedType === 'Story' || selectedType === 'Story_Mini') {
       router.push('/studio/story-editor');
+    } else if (selectedType === 'Photo') {
+      pickPhotoFromLibrary();
     } else {
       setShowSourceModal(true);
     }
@@ -279,16 +288,16 @@ export default function StandardUpload() {
         return Alert.alert("Auth Error", "Please log in again to publish content.");
       }
 
-      const resourceType = type === 'Photo' ? 'image' : (type === 'Sound' ? 'audio' : 'video');
+      const isStoryType = type === 'Story' || type === 'Story_Mini';
+      const isReelType = type === 'Reels';
+      const resourceType = type === 'Photo' ? 'image' : (type === 'Sound' ? 'audio' : (isStoryType ? 'story' : 'video'));
       const userEnteredTitle = title.trim();
       const finalTitle = userEnteredTitle.length > 0
         ? userEnteredTitle
         : `VOEXI ${type} Production`;
 
       const uploaderHandle = userData?.username || userData?.channel_name || 'admin_creator';
-      const targetCategory = type === 'Sound' ? 'SOUNDS' : (type === 'Photo' ? 'PHOTOS' : (type === 'Reels' ? 'REELS' : 'ENTERTAINMENT'));
-
-      const url = type !== 'Letter' ? await uploadToBunny(media!, resourceType, undefined, finalTitle, uploaderHandle, description.trim(), targetCategory) : '';
+      const targetCategory = isStoryType ? 'STORY' : (type === 'Sound' ? 'SOUNDS' : (type === 'Photo' ? 'PHOTOS' : (type === 'Reels' ? 'REELS' : 'ENTERTAINMENT')));
 
       const generateUUID = () => {
         const u = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
@@ -298,7 +307,32 @@ export default function StandardUpload() {
         return sanitizeUUID(u);
       };
 
-      const isReelType = type === 'Reels';
+      const itemsToUpload = (type === 'Photo' && mediaList.length > 0) ? mediaList : (media ? [media] : []);
+      const uploadedUrls: string[] = [];
+
+      for (let i = 0; i < itemsToUpload.length; i++) {
+        const itemUri = itemsToUpload[i];
+        if (!itemUri) continue;
+
+        const itemTitle = itemsToUpload.length > 1
+          ? `${finalTitle} (${i + 1}/${itemsToUpload.length})`
+          : finalTitle;
+
+        const uploadedUrl = type !== 'Letter'
+          ? await uploadToBunny(itemUri, resourceType, undefined, itemTitle, uploaderHandle, description.trim(), targetCategory)
+          : '';
+
+        if (uploadedUrl) uploadedUrls.push(uploadedUrl);
+      }
+
+      const primaryUrl = uploadedUrls[0] || null;
+
+      // Sync multi-photo media_urls array with Server 2 primary photo asset
+      if (type === 'Photo' && uploadedUrls.length > 1 && itemsToUpload[0]) {
+        try {
+          await uploadToBunny(itemsToUpload[0], resourceType, undefined, finalTitle, uploaderHandle, description.trim(), targetCategory, undefined, undefined, undefined, uploadedUrls);
+        } catch {}
+      }
       const determinedMediaType = type === 'Photo' ? 'image' : (type === 'Letter' ? 'text' : (type === 'Sound' ? 'audio' : 'video'));
 
       const postData = {
@@ -306,14 +340,17 @@ export default function StandardUpload() {
         user_id: cleanUserId,
         title: finalTitle,
         description: description.trim(),
-        media_url: url || null,
-        post_type: type,
-        media_type: determinedMediaType,
+        media_url: primaryUrl,
+        media_urls: uploadedUrls,
+        post_type: isStoryType ? 'Story' : type,
+        category: isStoryType ? 'STORY' : targetCategory,
+        is_story: isStoryType,
         is_reel: isReelType,
-        width: isReelType ? 1080 : 1920,
-        height: isReelType ? 1920 : 1080,
-        aspect_ratio: isReelType ? 0.5625 : 1.7777,
-        thumbnail_url: url || null,
+        media_type: determinedMediaType,
+        width: (isReelType || isStoryType) ? 1080 : (type === 'Photo' ? 1080 : 1920),
+        height: (isReelType || isStoryType) ? 1920 : (type === 'Photo' ? 1350 : 1080),
+        aspect_ratio: (isReelType || isStoryType) ? 0.5625 : (type === 'Photo' ? 0.8 : 1.7777),
+        thumbnail_url: primaryUrl,
         visibility: 'public',
         moderation_status: 'approved',
         created_at: new Date().toISOString(),
@@ -351,7 +388,6 @@ export default function StandardUpload() {
         console.error("[SUPABASE INSERT ERROR]:", insertError.message);
       }
 
-      // Also register sound in vx_sounds catalog if post_type is Sound
       if (type === 'Sound') {
         try {
           await supabase.from('vx_sounds').upsert({
@@ -368,7 +404,7 @@ export default function StandardUpload() {
         }
       }
 
-      // Save to local uploads in AsyncStorage so it INSTANTLY shows up in Profile screen
+      // Save to local uploads in AsyncStorage
       try {
         const localRaw = await AsyncStorage.getItem('@my_local_uploads');
         const existing = localRaw ? JSON.parse(localRaw) : [];
@@ -379,7 +415,7 @@ export default function StandardUpload() {
       if (type === 'Reels') {
         router.replace({
           pathname: '/(tabs)/video-feed',
-          params: { newReelUrl: url, newReelTitle: title.trim() }
+          params: { newReelUrl: primaryUrl, newReelTitle: title.trim() }
         });
       } else {
         router.replace('/(tabs)');
@@ -425,6 +461,29 @@ export default function StandardUpload() {
       </SafeAreaView>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollArea}>
+
+        {/* 1-TAP GALLERY UPLOAD HERO BANNER */}
+        <TouchableOpacity
+          style={styles.heroUploadBanner}
+          onPress={pickPhotoFromLibrary}
+          activeOpacity={0.85}
+        >
+          <LinearGradient
+            colors={['#9D50FF', '#00F2FE']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.heroUploadGradient}
+          >
+            <View style={styles.heroIconCircle}>
+              <Ionicons name="images" size={26} color="#fff" />
+            </View>
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={styles.heroTitle}>SELECT FROM GALLERY 📁</Text>
+              <Text style={styles.heroSubtitle}>Upload up to 5 photos or videos in 1 tap</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#fff" />
+          </LinearGradient>
+        </TouchableOpacity>
 
         {/* ROW 1: 3 CARDS */}
         <View style={styles.topGrid}>
@@ -546,6 +605,46 @@ export default function StandardUpload() {
              </View>
            ) : (
              <>
+               {type === 'Photo' && mediaList.length > 0 && (
+                 <View style={styles.batchContainer}>
+                   <View style={styles.batchHeaderRow}>
+                     <Ionicons name="images" size={16} color="#00F2FE" />
+                     <Text style={styles.batchTitle}>
+                       BATCH GALLERY ({mediaList.length}/5 SELECTED)
+                     </Text>
+                   </View>
+
+                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 4, gap: 10 }}>
+                     {mediaList.map((uri, idx) => (
+                       <View key={idx} style={styles.batchThumbWrapper}>
+                         <Image source={{ uri }} style={styles.batchThumbImage} contentFit="cover" />
+                         <TouchableOpacity
+                           style={styles.batchRemoveBtn}
+                           onPress={() => {
+                             const newList = mediaList.filter((_, i) => i !== idx);
+                             setMediaList(newList);
+                             setMedia(newList[0] || null);
+                             if (newList.length === 0) setStep(1);
+                           }}
+                         >
+                           <Ionicons name="close-circle" size={20} color="#FF3B30" />
+                         </TouchableOpacity>
+                       </View>
+                     ))}
+
+                     {mediaList.length < 5 && (
+                       <TouchableOpacity
+                         style={styles.batchAddMoreBtn}
+                         onPress={() => setShowSourceModal(true)}
+                       >
+                         <Ionicons name="add" size={22} color="#00F2FE" />
+                         <Text style={styles.batchAddText}>ADD ({5 - mediaList.length})</Text>
+                       </TouchableOpacity>
+                     )}
+                   </ScrollView>
+                 </View>
+               )}
+
                <View style={styles.previewBox}>
                  <Ionicons
                    name={type === 'Sound' ? (isPlayingAudio ? "pause-circle" : "musical-notes") : (type === 'Photo' ? "image" : "videocam")}
@@ -589,10 +688,33 @@ export default function StandardUpload() {
                <TextInput style={[styles.inputStep2, {height: 100, textAlignVertical: 'top'}]} placeholder="Tell your fans more..." placeholderTextColor="#444" multiline value={description} onChangeText={setDescription} />
              </>
            )}
-           <TouchableOpacity style={[styles.pubBtn, loading && {opacity: 0.6}]} onPress={handlePublish} disabled={loading}>
-              {loading ? <ActivityIndicator color="#fff" /> : <Text style={{color: '#fff', fontWeight:'bold', letterSpacing:1}}>PUBLISH TO VOEXI</Text>}
-           </TouchableOpacity>
         </ScrollView>
+
+        {/* STICKY UNMISSABLE BOTTOM PUBLISH FOOTER */}
+        <View style={styles.stickyFooter}>
+          <TouchableOpacity
+            style={[styles.pubBtnSticky, loading && { opacity: 0.6 }]}
+            onPress={handlePublish}
+            disabled={loading}
+            activeOpacity={0.85}
+          >
+            <LinearGradient
+              colors={['#9D50FF', '#00F2FE']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.pubBtnGradient}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <>
+                  <Ionicons name="paper-plane" size={20} color="#fff" />
+                  <Text style={styles.pubBtnText}>PUBLISH TO VOEXI 🚀</Text>
+                </>
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -748,6 +870,14 @@ const styles = StyleSheet.create({
 
   headerStep2: { padding: 20, flexDirection:'row', alignItems:'center', gap: 15 },
   titleStep2: { color: '#fff', fontSize: 16, fontWeight: '900', letterSpacing: 1 },
+  batchContainer: { width: '100%', backgroundColor: 'rgba(255, 255, 255, 0.03)', borderRadius: 16, padding: 12, marginBottom: 15, borderWidth: 1, borderColor: 'rgba(0, 242, 254, 0.2)' },
+  batchHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  batchTitle: { color: '#00F2FE', fontSize: 10, fontWeight: '900', letterSpacing: 1 },
+  batchThumbWrapper: { width: 72, height: 72, borderRadius: 12, overflow: 'hidden', position: 'relative', borderWidth: 1, borderColor: '#333' },
+  batchThumbImage: { width: '100%', height: '100%' },
+  batchRemoveBtn: { position: 'absolute', top: 2, right: 2, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 10 },
+  batchAddMoreBtn: { width: 72, height: 72, borderRadius: 12, backgroundColor: 'rgba(0, 242, 254, 0.08)', borderWidth: 1.5, borderColor: '#00F2FE', borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' },
+  batchAddText: { color: '#00F2FE', fontSize: 8, fontWeight: '900', marginTop: 2 },
   previewBox: { minHeight: 180, backgroundColor: '#080808', borderRadius: 20, justifyContent: 'center', alignItems: 'center', marginBottom: 25, borderWidth: 1, borderColor: '#111', padding: 15 },
   listenBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(168, 85, 247, 0.2)', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: VOEXITheme.colors.primary, marginTop: 10 },
   listenBtnText: { color: '#fff', fontSize: 10, fontWeight: '900', letterSpacing: 0.5 },
@@ -755,7 +885,68 @@ const styles = StyleSheet.create({
   changeFileBtnText: { color: '#00F2FE', fontSize: 10, fontWeight: '900', letterSpacing: 0.5 },
   inputLabel: { color: '#444', fontSize: 10, fontWeight: '900', marginBottom: 8, marginLeft: 5 },
   inputStep2: { backgroundColor: '#080808', color: '#fff', padding: 18, borderRadius: 15, marginBottom: 30, borderWidth: 1, borderColor: '#111', fontWeight: 'bold' },
-  pubBtn: { backgroundColor: VOEXITheme.colors.primary, padding: 20, borderRadius: 18, alignItems: 'center' },
+  stickyFooter: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    backgroundColor: '#000000',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  pubBtnSticky: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    elevation: 10,
+    shadowColor: '#9D50FF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 8,
+  },
+  pubBtnGradient: {
+    paddingVertical: 16,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 10,
+  },
+  pubBtnText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+  },
+  heroUploadBanner: {
+    marginHorizontal: 12,
+    marginBottom: 15,
+    borderRadius: 22,
+    overflow: 'hidden',
+    elevation: 8,
+  },
+  heroUploadGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  heroIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  heroTitle: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+  heroSubtitle: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 10,
+    fontWeight: '600',
+    marginTop: 2,
+  },
   letterEditorContainer: { minHeight: 450, borderRadius: 30, padding: 25, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(0, 242, 254, 0.2)' },
   letterEditorBg: { ...StyleSheet.absoluteFillObject, opacity: 0.8 },
   editorField: { marginBottom: 10 },

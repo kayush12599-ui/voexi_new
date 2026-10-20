@@ -16,19 +16,28 @@ const DUMMY_ADS = [
   {
     headline: 'VOEXI Pro: The Future is Here',
     tagline: 'Experience the next generation of social media with AI-driven content and high-fidelity streaming.',
-    advertiser: 'Voexi Labs',
-    cta: 'UPGRADE NOW',
-    icon: 'https://iafmgtldihnhcvrfveev.supabase.co/storage/v1/object/public/assets/logo_pro.png',
-    media: 'https://images.unsplash.com/photo-1614850523296-d8c1af93d400?w=800',
+    advertiser: 'VOEXI Sponsor',
+    cta: 'EXPLORE NOW',
+    icon: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200&h=200&fit=crop',
+    media: 'https://images.unsplash.com/photo-1614850523296-d8c1af93d400?w=800&fit=crop',
     url: 'https://voexi.com'
   },
   {
-    headline: 'Crystal Clear Audio Beats',
+    headline: 'Crystal Clear Studio Audio Beats',
     tagline: 'Get the best remix tools and studio-quality filters for your next viral hit.',
-    advertiser: 'AudioSync Tech',
+    advertiser: 'AudioSync Studio',
     cta: 'LEARN MORE',
-    icon: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=100',
-    media: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=800',
+    icon: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200&h=200&fit=crop',
+    media: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=800&fit=crop',
+    url: 'https://voexi.com'
+  },
+  {
+    headline: 'Neural AI Creation Suite',
+    tagline: 'Generate stunning 9:16 reels, photos, and music in seconds with neural intelligence.',
+    advertiser: 'Neural AI Core',
+    cta: 'TRY AI CREATOR',
+    icon: 'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=200&h=200&fit=crop',
+    media: 'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=800&fit=crop',
     url: 'https://voexi.com'
   }
 ];

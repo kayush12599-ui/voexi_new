@@ -59,144 +59,114 @@ export default function DirectChatScreen() {
             }));
             setJoinedClusters(clusterChats.sort((a, b) => new Date(b.lastMessage?.created_at || 0).getTime() - new Date(a.lastMessage?.created_at || 0).getTime()));
           }
-        } else {
-          setJoinedClusters([]);
         }
-      } catch (err) {
-        console.error("[CLUSTERS_FETCH_ERROR]", err);
+      } catch (e) {
+        console.error("Cluster Fetch Error:", e);
       }
 
-      // 2. FETCH DIRECT MESSAGES (FRIENDS 1-ON-1)
+      // 2. FETCH DIRECT 1-ON-1 FRIENDS & CHATS
       try {
-        const { data: relations, error: relError } = await supabase
+        const { data: friendsData, error } = await supabase
           .from('friends')
-          .select('sender_id, receiver_id')
+          .select(`
+            sender_id, receiver_id,
+            sender:profiles!sender_id(id, username, avatar_url, channel_name),
+            receiver:profiles!receiver_id(id, username, avatar_url, channel_name)
+          `)
           .eq('status', 'accepted')
           .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`);
 
-        if (relError) console.error("[CHAT_LIST] Error:", relError);
+        if (friendsData) {
+          const list = await Promise.all(friendsData.map(async (f) => {
+            const friendObj = f.sender_id === user.id ? f.receiver : f.sender;
+            if (!friendObj) return null;
 
-        if (relations && relations.length > 0) {
-          const friendIds = relations.map(rel => rel.sender_id === user.id ? rel.receiver_id : rel.sender_id);
-          const uniqueFriendIds = [...new Set(friendIds)];
-          const { data: profs } = await supabase.from('profiles').select('*').in('id', uniqueFriendIds);
+            const { data: lastMsg } = await supabase
+              .from('messages')
+              .select('content, created_at, type, sender_id, is_read')
+              .or(`and(sender_id.eq.${user.id},receiver_id.eq.${friendObj.id}),and(sender_id.eq.${friendObj.id},receiver_id.eq.${user.id})`)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
 
-          if (profs) {
-            const chats = await Promise.all(profs.map(async (friend) => {
-              const { data: lastMsg } = await supabase
-                .from('messages')
-                .select('content, created_at, type, sender_id, is_read')
-                .is('group_id', null)
-                .or(`and(sender_id.eq.${user.id},receiver_id.eq.${friend.id}),and(sender_id.eq.${friend.id},receiver_id.eq.${user.id})`)
-                .order('created_at', { ascending: false }).limit(1).maybeSingle();
+            const { count } = await supabase
+              .from('messages')
+              .select('*', { count: 'exact', head: true })
+              .eq('sender_id', friendObj.id)
+              .eq('receiver_id', user.id)
+              .eq('is_read', false);
 
-              const { count } = await supabase
-                .from('messages')
-                .select('*', { count: 'exact', head: true })
-                .eq('sender_id', friend.id)
-                .eq('receiver_id', user.id)
-                .eq('is_read', false);
+            return {
+              ...friendObj,
+              lastMessage: lastMsg,
+              unreadCount: count || 0,
+              isGroup: false
+            };
+          }));
 
-              return { ...friend, lastMessage: lastMsg, unreadCount: count || 0, isGroup: false };
-            }));
-            setFriends(chats.sort((a, b) => new Date(b.lastMessage?.created_at || 0).getTime() - new Date(a.lastMessage?.created_at || 0).getTime()));
-          }
-        } else {
-          setFriends([]);
+          const validList = list.filter(Boolean);
+          validList.sort((a, b) => new Date(b.lastMessage?.created_at || 0).getTime() - new Date(a.lastMessage?.created_at || 0).getTime());
+          setFriends(validList);
         }
-      } catch (err) {
-        console.error("[DIRECT_MESSAGES_ERROR]", err);
+      } catch (e) {
+        console.error("Friends Fetch Error:", e);
       }
     }
     setLoading(false);
   };
 
-  useFocusEffect(useCallback(() => { fetchFriendsAndMessages(); }, []));
-
-  useEffect(() => {
-    if (!currentUser?.id) return;
-
-    const channelId = `chats_list_${currentUser.id}_${Date.now()}`;
-    const channel = supabase.channel(channelId);
-
-    channel
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'messages'
-      }, () => {
-        fetchFriendsAndMessages();
-      })
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'friends'
-      }, () => fetchFriendsAndMessages())
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'group_members'
-      }, () => fetchFriendsAndMessages())
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [currentUser?.id]);
-
   const checkPendingRequests = async (userId: string) => {
-    const { data } = await supabase.from('friends').select('id').eq('receiver_id', userId).eq('status', 'pending').limit(1);
-    setHasPendingRequest(!!(data && data.length > 0));
+    const { count } = await supabase
+      .from('friends')
+      .select('*', { count: 'exact', head: true })
+      .eq('receiver_id', userId)
+      .eq('status', 'pending');
+    setHasPendingRequest(!!count && count > 0);
   };
 
-  // Combine or filter lists
-  const allConversations = [...joinedClusters, ...friends].sort((a, b) =>
-    new Date(b.lastMessage?.created_at || 0).getTime() - new Date(a.lastMessage?.created_at || 0).getTime()
+  useFocusEffect(
+    useCallback(() => {
+      fetchFriendsAndMessages();
+    }, [])
   );
 
-  const displayedList = activeTab === 'clusters' ? joinedClusters
-    : activeTab === 'direct' ? friends
-    : allConversations;
-
-  const filteredList = displayedList.filter(item => {
+  // Combine and Filter List
+  const combinedList = [...joinedClusters, ...friends].filter(item => {
     const name = item.name || item.username || item.channel_name || '';
     return name.toLowerCase().includes(searchQuery.toLowerCase());
+  });
+
+  const filteredDisplayList = combinedList.filter(item => {
+    if (activeTab === 'direct') return !item.isGroup;
+    if (activeTab === 'clusters') return item.isGroup;
+    return true;
   });
 
   return (
     <SafeAreaView style={[styles.container, isLight && { backgroundColor: '#fff' }]}>
       {/* HEADER */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.replace('/(tabs)')}>
-          <Ionicons name="chevron-back" size={24} color={isLight ? '#000' : "#fff"} />
+        <TouchableOpacity onPress={() => router.back()}>
+          <Ionicons name="chevron-back" size={26} color={isLight ? '#000' : '#fff'} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, isLight && { color: '#000' }]}>MESSAGES & LINKS</Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <TouchableOpacity onPress={() => router.push('/menu/clusters?create=true')} style={[styles.addBtn, isLight && { backgroundColor: '#F5F5F5', borderColor: '#EEE' }]}>
-            <Ionicons name="people" size={18} color={THEME.accent} />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => router.push('/menu/people')} style={[styles.addBtn, isLight && { backgroundColor: '#F5F5F5', borderColor: '#EEE' }]}>
-            <Ionicons name="person-add" size={18} color={isLight ? '#000' : "#fff"} />
-            {hasPendingRequest && <View style={styles.dot} />}
-          </TouchableOpacity>
-        </View>
+        <Text style={[styles.headerTitle, isLight && { color: '#000' }]}>DIRECT MESSAGES</Text>
+
+        <TouchableOpacity onPress={() => router.push('/menu/friends')} style={[styles.addBtn, isLight && { backgroundColor: '#F5F5F5', borderColor: '#EEE' }]}>
+          <Ionicons name="person-add-outline" size={20} color={isLight ? '#000' : '#fff'} />
+          {hasPendingRequest && <View style={styles.dot} />}
+        </TouchableOpacity>
       </View>
 
-      {/* SEARCH BAR */}
+      {/* SEARCH BOX */}
       <View style={[styles.searchBox, isLight && { backgroundColor: '#F5F5F5', borderColor: '#EEE' }]}>
-        <Ionicons name="search" size={18} color="#555" />
+        <Ionicons name="search" size={18} color={isLight ? '#888' : THEME.textDim} />
         <TextInput
-          placeholder="Search chats, clusters, friends..."
-          placeholderTextColor="#555"
           style={[styles.searchInput, isLight && { color: '#000' }]}
+          placeholder="Search transmissions & clusters..."
+          placeholderTextColor={isLight ? '#888' : THEME.textDim}
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
-        {searchQuery !== '' && (
-          <TouchableOpacity onPress={() => setSearchQuery('')}>
-            <Ionicons name="close-circle" size={18} color="#555" />
-          </TouchableOpacity>
-        )}
       </View>
 
       {/* YOUR ACTIVE LINKS (JOINED CLUSTERS HORIZONTAL SCROLL) */}
@@ -258,79 +228,65 @@ export default function DirectChatScreen() {
               isLight && activeTab !== t.id && { backgroundColor: '#F5F5F5', borderColor: '#EEE' }
             ]}
           >
-            <Text style={[styles.tabText, activeTab === t.id && { color: '#fff', fontWeight: 'bold' }]}>
-              {t.label}
-            </Text>
+            <Text style={[styles.tabText, activeTab === t.id && { color: '#fff' }]}>{t.label}</Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      {/* CONVERSATIONS LIST */}
+      {/* CHAT LIST */}
       {loading ? (
-        <ActivityIndicator style={{ marginTop: 40 }} color={THEME.accent} size="large" />
+        <ActivityIndicator color={THEME.accent} size="large" style={{ marginTop: 40 }} />
       ) : (
         <FlatList
-          data={filteredList}
-          keyExtractor={(item) => (item.isGroup ? `group-${item.id}` : `user-${item.id}`)}
+          data={filteredDisplayList}
+          keyExtractor={(item) => item.id}
+          showsVerticalScrollIndicator={false}
           renderItem={({ item }) => {
-            const isGroup = !!item.isGroup;
+            const isGroup = item.isGroup;
             const title = item.name || item.channel_name || item.username || 'VOEXI Agent';
-            const avatar = item.avatar_url || 'https://via.placeholder.com/100';
-            const isLastMessageMine = item.lastMessage?.sender_id === currentUser?.id;
+            const avatarUri = item.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(title)}&background=7C5CFF&color=fff&bold=true`;
+            const lastMsgText = item.lastMessage ? (item.lastMessage.type === 'image' ? '📸 Attachment' : item.lastMessage.type === 'voice' ? '🎙️ Voice Signal' : item.lastMessage.content) : 'No transmissions yet';
             const time = item.lastMessage ? new Date(item.lastMessage.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-            const routePath = isGroup ? `/menu/chat/${item.id}?type=group` : `/menu/chat/${item.id}`;
 
             return (
               <TouchableOpacity
                 style={[styles.chatCard, isLight && { backgroundColor: '#F9F9F9', borderColor: '#EEE' }]}
-                onPress={() => router.push(routePath as any)}
-                activeOpacity={0.7}
+                onPress={() => router.push(isGroup ? `/menu/chat/${item.id}?type=group` : `/menu/chat/${item.id}`)}
               >
                 <View style={styles.avatarWrapper}>
-                  <Image source={{ uri: avatar }} style={[styles.avatar, isGroup && { borderRadius: 18, borderWidth: 1.5, borderColor: THEME.accent }]} />
+                  <Image source={{ uri: avatarUri }} style={styles.avatar} />
                   {isGroup && (
                     <View style={styles.clusterTypeBadge}>
-                      <MaterialCommunityIcons name="molecule" size={10} color="#fff" />
+                      <Ionicons name="people" size={10} color="#fff" />
                     </View>
                   )}
                   {item.unreadCount > 0 && (
                     <View style={styles.unreadBadge}>
-                      <Text style={styles.unreadText}>{item.unreadCount > 99 ? '99+' : item.unreadCount}</Text>
+                      <Text style={styles.unreadText}>{item.unreadCount}</Text>
                     </View>
                   )}
                 </View>
 
-                <View style={[styles.chatInfo, isLight && { borderBottomColor: '#EEE' }]}>
+                <View style={styles.chatInfo}>
                   <View style={styles.nameRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-                      <Text style={[styles.chatName, isLight && { color: '#000' }, item.unreadCount > 0 && { fontWeight: '900' }]} numberOfLines={1}>
-                        {title}
-                      </Text>
-                      {isGroup && (
-                        <View style={styles.clusterLabel}>
-                          <Text style={styles.clusterLabelText}>CLUSTER</Text>
-                        </View>
-                      )}
-                    </View>
-                    <Text style={[styles.timeText, item.unreadCount > 0 && { color: THEME.accent }]}>{time}</Text>
+                    <Text style={[styles.chatName, isLight && { color: '#000' }]} numberOfLines={1}>{title}</Text>
+                    <Text style={styles.timeText}>{time}</Text>
                   </View>
-
-                  <View style={styles.lastMsgRow}>
-                    {isLastMessageMine && (
-                      <Ionicons name={item.lastMessage?.is_read ? "checkmark-done" : "checkmark"} size={14} color={item.lastMessage?.is_read ? "#00F2FE" : "#444"} style={{ marginRight: 5 }} />
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    {isGroup && (
+                      <View style={styles.clusterLabel}>
+                        <Text style={styles.clusterLabelText}>CLUSTER</Text>
+                      </View>
                     )}
-                    <Text style={[styles.lastMsg, item.unreadCount > 0 && { color: isLight ? '#000' : '#fff', fontWeight: 'bold' }]} numberOfLines={1}>
-                      {item.lastMessage?.type === 'text' ? item.lastMessage?.content
-                        : item.lastMessage?.type === 'poll' ? '📊 Live Poll'
-                        : item.lastMessage?.type === 'ai_text' ? '🤖 VOEXI AI Reply'
-                        : item.lastMessage ? `[${item.lastMessage.type.toUpperCase()}]` : 'Tap to start signal transmission...'}
+                    <Text style={[styles.lastMsg, item.unreadCount > 0 && { color: THEME.accent, fontWeight: 'bold' }]} numberOfLines={1}>
+                      {lastMsgText}
                     </Text>
                   </View>
                 </View>
               </TouchableOpacity>
             );
           }}
-          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 40 }}
+          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20 }}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <MaterialCommunityIcons name="chat-remove-outline" size={50} color={isLight ? '#CCC' : '#333'} />
@@ -378,9 +334,8 @@ const styles = StyleSheet.create({
   chatName: { color: '#fff', fontSize: 15, fontWeight: '700' },
   clusterLabel: { backgroundColor: 'rgba(124, 92, 255, 0.18)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: 'rgba(124, 92, 255, 0.3)' },
   clusterLabelText: { color: THEME.accent, fontSize: 7, fontWeight: '900' },
-  timeText: { color: THEME.textDim, fontSize: 10, fontWeight: '600' },
-  lastMsgRow: { flexDirection: 'row', alignItems: 'center' },
   lastMsg: { color: THEME.textDim, fontSize: 12, flex: 1 },
-  emptyContainer: { alignItems: 'center', marginTop: 60 },
-  empty: { color: THEME.textDim, textAlign: 'center', marginTop: 15, fontSize: 13, fontWeight: '600' },
+  timeText: { color: '#444', fontSize: 10, fontWeight: '700' },
+  emptyContainer: { alignItems: 'center', justifyContent: 'center', paddingVertical: 50 },
+  empty: { color: THEME.textDim, fontSize: 13, marginTop: 10, fontWeight: '600' }
 });

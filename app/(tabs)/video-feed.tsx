@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, memo, useCallback } from 'react';
 import { StyleSheet, View, FlatList, StatusBar, ActivityIndicator, Dimensions, Modal, Pressable, TouchableOpacity, Text, Alert, Platform, useWindowDimensions, TextInput, KeyboardAvoidingView, Image } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../../lib/supabase';
+import { getLocalMediaServerUrl } from '../../lib/bunnyStorage';
+import { CommentService } from '../../lib/commentService';
 import { useLocalSearchParams, useGlobalSearchParams, useRouter, useNavigation } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { VOEXITheme } from '../../constants/theme';
@@ -11,25 +13,20 @@ import InFeedTestAdCard from '../../components/InFeedTestAdCard';
 import { Ionicons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import * as ImagePicker from 'expo-image-picker';
+import * as Haptics from 'expo-haptics';
 import { ServerDiscovery } from '../../lib/serverDiscovery';
 
 const CommentVideoThumbnail = memo(({ mediaUrl }: { mediaUrl: string }) => {
-  try {
-    const player = useVideoPlayer(mediaUrl, p => {
-      p.loop = true;
-    });
-    return (
-      <View style={{ width: 180, height: 130, borderRadius: 10, marginTop: 6, backgroundColor: '#000', overflow: 'hidden' }}>
-        <VideoView style={StyleSheet.absoluteFillObject} player={player} />
+  return (
+    <View style={{ width: 180, height: 130, borderRadius: 10, marginTop: 6, backgroundColor: '#0A0A12', justifyContent: 'center', alignItems: 'center', overflow: 'hidden', borderWidth: 1, borderColor: '#1F1F2E' }}>
+      {mediaUrl ? (
+        <Image source={{ uri: mediaUrl }} style={StyleSheet.absoluteFillObject} contentFit="cover" />
+      ) : null}
+      <View style={{ backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 20, padding: 6 }}>
+        <Ionicons name="play" size={24} color="#A855F7" />
       </View>
-    );
-  } catch(e) {
-    return (
-      <View style={{ width: 180, height: 130, borderRadius: 10, marginTop: 6, backgroundColor: '#14142B', justifyContent: 'center', alignItems: 'center' }}>
-        <Ionicons name="play-circle-outline" size={32} color="#A855F7" />
-      </View>
-    );
-  }
+    </View>
+  );
 });
 
 export default function VideoFeedScreen() {
@@ -107,24 +104,31 @@ export default function VideoFeedScreen() {
 
   const handleReplyPress = (cmt: any) => {
     const handle = cmt.profiles?.channel_name || cmt.profiles?.username || cmt.user || '@user';
-    const targetParentId = cmt.parent_id || cmt.id;
+    // Root Top-Level Parent ID
+    const rootParentId = cmt.parent_id || cmt.id;
 
     // Auto-expand nested replies thread on Reply tap!
-    setExpandedReplies(prev => ({ ...prev, [targetParentId]: true }));
-    setReplyToComment({ id: cmt.id, user: handle });
+    setExpandedReplies(prev => ({ ...prev, [rootParentId]: true }));
+    setReplyToComment({ id: rootParentId, user: handle, cmtId: cmt.id });
 
     setTimeout(() => {
       commentInputRef.current?.focus();
     }, 100);
   };
 
-  const handleUserProfilePress = (userId?: string) => {
-    if (!userId || userId === 'guest_user') return;
+  const handleUserProfilePress = (commentObj?: any) => {
     setCommentsModal(false);
-    if (currentUserId && userId === currentUserId) {
-      router.push('/profile');
+    if (Haptics) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+
+    const uid = typeof commentObj === 'object' ? (commentObj.user_id || commentObj.user || commentObj.username) : commentObj;
+    const targetHandle = String(uid || 'creator').replace('@', '').trim();
+
+    if (currentUserId && (uid === currentUserId || targetHandle === 'you')) {
+      router.push('/(tabs)/profile');
+    } else if (targetHandle) {
+      router.push(`/user/${targetHandle}`);
     } else {
-      router.push(`/user/${userId}`);
+      router.push('/(tabs)/profile');
     }
   };
 
@@ -204,13 +208,17 @@ export default function VideoFeedScreen() {
         {
           text: "🗑 Delete Comment",
           style: "destructive",
-          onPress: () => {
-            setCommentsList(prev => prev.filter(c => c.id !== cmt.id));
-            const targetFileKey = selectedCommentPost?.filename || selectedCommentPost?.id || selectedCommentPost?.title;
-            if (targetFileKey) {
-              fetch(`http://192.168.31.39:8080/api/comments?file=${encodeURIComponent(targetFileKey)}&cmtId=${encodeURIComponent(cmt.id)}`, {
-                method: 'DELETE'
-              }).catch(() => {});
+          onPress: async () => {
+            // If cmt is a reply, remove ONLY that reply. If parent comment, remove it and its replies.
+            const isReply = !!(cmt.parent_id || cmt.parentId);
+            setCommentsList(prev => prev.filter(c => {
+              if (isReply) {
+                return c.id !== cmt.id;
+              }
+              return c.id !== cmt.id && c.parent_id !== cmt.id && c.parentId !== cmt.id;
+            }));
+            if (selectedCommentPost) {
+              await CommentService.deleteComment(selectedCommentPost, cmt.id);
             }
           }
         },
@@ -227,66 +235,21 @@ export default function VideoFeedScreen() {
   const fetchCommentsForPost = async (postItem: any) => {
     if (!postItem) return;
     setLoadingComments(true);
-
-    const postId = typeof postItem === 'string' ? postItem : (postItem.filename || postItem.id || postItem.title || '');
-    const cacheKey = `@comments_v2_${postId}`;
-
-    // 1. Instant Cache Load from AsyncStorage
-    try {
-      const cachedStr = await AsyncStorage.getItem(cacheKey);
-      if (cachedStr) {
-        const cachedArr = JSON.parse(cachedStr);
-        if (Array.isArray(cachedArr) && cachedArr.length > 0) {
-          setCommentsList(cachedArr);
-          setLoadingComments(false);
-        }
-      }
-    } catch(e) {}
-
-    // 2. Fetch from Media Server
-    const cleanFileName = typeof postItem === 'object' ? (postItem.filename || postItem.title || postItem.id) : postItem;
-    let serverComments: any[] = [];
+    setCommentsList([]); // 🛡️ ALWAYS CLEAR PREVIOUS COMMENTS STATE IMMEDIATELY
 
     try {
-      const res = await fetch(`http://192.168.31.39:8080/api/comments?file=${encodeURIComponent(cleanFileName)}`);
-      const data = await res.json();
-      if (data.success && Array.isArray(data.comments) && data.comments.length > 0) {
-        serverComments = data.comments.map((c: any, idx: number) => ({
-          id: c.id || `cmt_srv_${idx}_${Date.now()}`,
-          content: c.text || c.content || '',
-          text: c.text || c.content || '',
-          type: c.type || 'text',
-          media_url: c.media_url,
-          created_at: c.created_at || new Date().toISOString(),
-          profiles: { username: c.user || '@viewer', channel_name: c.user || '@viewer', avatar_url: c.avatar || 'https://via.placeholder.com/50' }
-        }));
-      }
-    } catch(e) {}
+      const res = await CommentService.fetchCommentsForPost(postItem);
+      setCommentsList(res.allComments);
 
-    // 3. Query Supabase ONLY IF postId is a valid UUID
-    if (serverComments.length === 0 && isUuid(postId)) {
-      try {
-        const { data } = await supabase
-          .from('comments')
-          .select('*, profiles(username, avatar_url, channel_name)')
-          .eq('post_id', postId)
-          .order('created_at', { ascending: false });
-        if (data && data.length > 0) {
-          serverComments = data;
-        }
-      } catch(e) {}
-    }
-
-    if (serverComments.length > 0) {
-      setCommentsList(serverComments);
-      AsyncStorage.setItem(cacheKey, JSON.stringify(serverComments)).catch(() => {});
       if (typeof postItem === 'object') {
-        postItem.comments = serverComments;
-        postItem.comments_count = serverComments.length;
+        postItem.comments = res.allComments;
+        postItem.comments_count = res.totalCount;
       }
+    } catch (e) {
+      console.error("[COMMENTS FETCH ERROR]:", e);
+    } finally {
+      setLoadingComments(false);
     }
-
-    setLoadingComments(false);
   };
 
   const handleAddComment = async () => {
@@ -296,7 +259,7 @@ export default function VideoFeedScreen() {
     setCommentInput('');
     setAttachmentMedia(null);
 
-    let activeUserId = currentUserId;
+    let activeUserId = currentUserId || 'guest_user';
     let realUserHandle = '@app_user';
     let userAvatar = 'https://via.placeholder.com/50';
 
@@ -312,79 +275,30 @@ export default function VideoFeedScreen() {
       }
     } catch(e) {}
 
-    const replyUser = replyToComment ? replyToComment.user : null;
-    const parentId = replyToComment ? replyToComment.id : null;
+    const currentReplyTo = replyToComment;
     setReplyToComment(null);
 
-    const commentText = text || (attached?.type === 'voice' ? '🎙 Voice Signal' : (attached?.type === 'video' ? '🎬 Video Signal (10s)' : '🖼 Visual Signal'));
+    const replyUser = currentReplyTo ? currentReplyTo.user : null;
+    const newCmt = await CommentService.postComment(
+      selectedCommentPost,
+      text,
+      { id: activeUserId, handle: realUserHandle, avatar: userAvatar },
+      currentReplyTo ? { id: currentReplyTo.id, user: replyUser } : null,
+      attached
+    );
 
-    const newCommentObj = {
-      id: `cmt_${Date.now()}`,
-      post_id: selectedCommentPost.id,
-      user_id: activeUserId || 'guest_user',
-      content: commentText,
-      text: commentText,
-      type: attached?.type || 'text',
-      media_url: attached?.uri || null,
-      reply_to_user: replyUser,
-      parent_id: parentId,
-      created_at: new Date().toISOString(),
-      profiles: {
-        username: realUserHandle,
-        channel_name: realUserHandle,
-        avatar_url: userAvatar
+    if (newCmt) {
+      setCommentsList(prev => [newCmt, ...prev]);
+      if (typeof selectedCommentPost.comments_count === 'number') {
+        selectedCommentPost.comments_count += 1;
       }
-    };
-
-    // 1. Instant State & AsyncStorage Cache Update
-    setCommentsList(prev => {
-      const updated = [newCommentObj, ...prev];
-      const postId = selectedCommentPost.filename || selectedCommentPost.id || selectedCommentPost.title;
-      AsyncStorage.setItem(`@comments_v2_${postId}`, JSON.stringify(updated)).catch(() => {});
-      return updated;
-    });
-
-    if (!selectedCommentPost.comments) selectedCommentPost.comments = [];
-    selectedCommentPost.comments.unshift(newCommentObj);
-    if (typeof selectedCommentPost.comments_count === 'number') {
-      selectedCommentPost.comments_count += 1;
-    }
-
-    const targetFileKey = selectedCommentPost.filename || selectedCommentPost.id || selectedCommentPost.title;
-
-    // 2. Save to Local Media Server Always
-    fetch('http://192.168.31.39:8080/api/comments', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        filename: targetFileKey,
-        user: realUserHandle,
-        avatar: userAvatar,
-        text: replyUser ? `↳ Replying to ${replyUser}: ${commentText}` : commentText,
-        type: attached?.type || 'text',
-        media_url: attached?.uri || null
-      })
-    }).catch(() => {});
-
-    // 3. Save to Supabase DB ONLY IF post ID is a valid UUID
-    if (isUuid(selectedCommentPost.id) && activeUserId && isUuid(activeUserId)) {
-      try {
-        await supabase
-          .from('comments')
-          .insert({
-            post_id: selectedCommentPost.id,
-            user_id: activeUserId,
-            content: commentText,
-            parent_id: parentId
-          });
-      } catch (e) {}
     }
   };
 
   const flatListRef = useRef<FlatList>(null);
 
   // Fast fetch helper with timeout safety
-  const fetchWithTimeout = async (url: string, timeoutMs = 1200) => {
+  const fetchWithTimeout = async (url: string, timeoutMs = 5000) => {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -404,10 +318,8 @@ export default function VideoFeedScreen() {
         const localList = JSON.parse(localRaw);
         if (Array.isArray(localList)) {
           const localReels = localList.filter((p: any) => {
-            const pt = p.post_type?.toLowerCase() || '';
-            const isReelByType = pt === 'reels' || pt === 'reel' || p.is_reel === true;
-            const isVerticalRatio = (p.height && p.width && p.height > p.width) || (p.aspect_ratio && typeof p.aspect_ratio === 'number' && p.aspect_ratio < 1.0);
-            return (isReelByType || isVerticalRatio) && pt !== 'photo' && pt !== 'story';
+            const pt = (p.post_type || p.category || '').toLowerCase();
+            return pt === 'reels' || pt === 'reel' || p.is_reel === true;
           });
           if (localReels.length > 0) {
             setVideos(localReels);
@@ -461,24 +373,22 @@ export default function VideoFeedScreen() {
           if (Array.isArray(localList)) {
             localReels = localList.filter((p: any) => {
               if (currentUserId && p.user_id && p.user_id !== currentUserId) return false;
-              const pt = p.post_type?.toLowerCase() || '';
-              const isReelByType = pt === 'reels' || pt === 'reel' || p.is_reel === true;
-              const isVerticalRatio = (p.height && p.width && p.height > p.width) || (p.aspect_ratio && typeof p.aspect_ratio === 'number' && p.aspect_ratio < 1.0);
-              return (isReelByType || isVerticalRatio) && pt !== 'photo' && pt !== 'story';
+              const pt = (p.post_type || p.category || '').toLowerCase();
+              return pt === 'reels' || pt === 'reel' || p.is_reel === true;
             });
           }
         }
       } catch (e) {}
 
-      // Process PenDrive files safely
+      // Process PenDrive files safely - STRICT REELS FILTER
       let penDriveFiles: any[] = [];
       if (penDriveRes.status === 'fulfilled' && penDriveRes.value && penDriveRes.value.ok) {
         try {
           const allPenFiles = await penDriveRes.value.json();
           penDriveFiles = allPenFiles.filter((f: any) => {
-            const pt = f.post_type?.toLowerCase() || '';
-            const isVideoUrl = f.video_url || f.media_url?.match(/\.(mp4|mov|avi|mkv|webm)$/i) || f.media_url?.includes('192.168.31.39:8080');
-            return isVideoUrl || pt === 'reels' || pt === 'reel' || pt === 'video' || pt === 'remix';
+            const pt = (f.post_type || f.category || '').toLowerCase();
+            const fn = (f.filename || f.title || '').toLowerCase();
+            return pt === 'reels' || pt === 'reel' || f.is_reel === true || fn.startsWith('reel_') || fn.includes('reel');
           });
         } catch (e) {}
       }
@@ -489,16 +399,91 @@ export default function VideoFeedScreen() {
       const seenUrls = new Set<string>();
       let uniqueFeed: any[] = [];
 
+      // Fetch Server 2 Profiles Map for 100% Real Logo Sync
+      let server2ProfilesMap: Record<string, any> = {};
+      try {
+        const s2Res = await fetchWithTimeout('http://192.168.31.39:8080/profiles.json', 1500);
+        if (s2Res && s2Res.ok) {
+          const s2Data = await s2Res.json();
+          if (Array.isArray(s2Data)) {
+            s2Data.forEach((prof: any) => {
+              if (prof.id) server2ProfilesMap[prof.id] = prof;
+              if (prof.user_id) server2ProfilesMap[prof.user_id] = prof;
+              if (prof.username) server2ProfilesMap[prof.username] = prof;
+              if (prof.channel_name) server2ProfilesMap[prof.channel_name] = prof;
+              if (prof.uploader) server2ProfilesMap[prof.uploader] = prof;
+            });
+          } else if (s2Data && typeof s2Data === 'object') {
+            server2ProfilesMap = s2Data;
+          }
+        }
+      } catch (e) {}
+
+      const formatAvatar = (rawUrl?: string | null, name: string = 'VOEXI') => {
+        if (!rawUrl || typeof rawUrl !== 'string') return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=A855F7&color=fff&bold=true`;
+        let url = rawUrl.trim();
+        if (url === '' || url === 'null') return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=A855F7&color=fff&bold=true`;
+        if (url.startsWith('//')) return 'https:' + url;
+        if (url.startsWith('/uploads/') || url.startsWith('/files/') || url.startsWith('/avatar/') || url.startsWith('/logos/')) return `http://192.168.31.39:8080${url}`;
+        if (url.startsWith('uploads/') || url.startsWith('files/') || url.startsWith('avatar/') || url.startsWith('logos/')) return `http://192.168.31.39:8080/${url}`;
+        if (url.startsWith('/')) return `https://voexi.b-cdn.net${url}`;
+        if (!url.startsWith('http') && !url.startsWith('file://') && !url.startsWith('content://')) return `https://voexi.b-cdn.net/${url}`;
+        return url;
+      };
+
       // Combine Supabase DB Posts FIRST, then Local Uploads, then PenDrive
       const rawCombined = [...supabasePosts, ...localReels, ...penDriveFiles];
       for (const post of rawCombined) {
         if (post && (post.media_url || post.video_url) && !seenUrls.has(post.media_url || post.video_url)) {
-          const pt = post.post_type?.toLowerCase() || '';
-          const isVideoUrl = post.video_url || post.media_url?.match(/\.(mp4|mov|avi|mkv|webm)$/i) || post.media_url?.includes('192.168.31.39:8080');
-          const isReelByType = pt === 'reels' || pt === 'reel' || post.is_reel === true || pt === 'video' || pt === 'remix' || isVideoUrl;
-          if (isReelByType && pt !== 'photo' && pt !== 'story' && pt !== 'writing') {
+          const pt = (post.post_type || post.category || '').toLowerCase();
+          const fn = (post.filename || post.title || '').toLowerCase();
+          const isStrictReel = pt === 'reels' || pt === 'reel' || post.is_reel === true || fn.startsWith('reel_') || fn.includes('reel');
+          if (isStrictReel) {
             seenUrls.add(post.media_url || post.video_url);
-            uniqueFeed.push(post);
+
+            // Sanitize and preserve author profiles from Server 2 & Local Cache
+            const isMine = Boolean(currentUserId && post.user_id === currentUserId);
+            const profObjCandidate = Array.isArray(post.profiles) ? post.profiles[0] : (post.profiles && typeof post.profiles === 'object' ? post.profiles : null);
+            const s2Prof = (post.user_id && server2ProfilesMap[post.user_id]) ||
+                           (post.uploader && server2ProfilesMap[post.uploader]) ||
+                           (post.username && server2ProfilesMap[post.username]) ||
+                           (post.channel_name && server2ProfilesMap[post.channel_name]) ||
+                           null;
+
+            let prof = profObjCandidate || s2Prof;
+            const rawAuthorTitle = prof?.channel_name || prof?.username || post.uploader || post.channel_name || post.username || (isMine ? 'My Station' : 'VOEXI Official');
+            const rawHandle = prof?.username || post.username || rawAuthorTitle;
+
+            const isGeneric = !rawAuthorTitle || rawAuthorTitle === 'VOEXI Creator' || rawAuthorTitle === 'VOEXI Broadcaster' || rawAuthorTitle === 'broadcaster' || rawAuthorTitle === 'admin_creator' || rawAuthorTitle.startsWith('user_');
+            const authorTitle = isGeneric ? 'VOEXI Official' : rawAuthorTitle;
+            const handleName = isGeneric ? 'voexi_official' : rawHandle.toLowerCase().replace(/[^a-z0-9_]/g, '');
+
+            const rawLogo = prof?.custom_logo_url || prof?.logo_url || prof?.avatar_url ||
+                            s2Prof?.custom_logo_url || s2Prof?.logo_url || s2Prof?.avatar_url ||
+                            post.custom_logo_url || post.logo_url || post.avatar_url || post.user_avatar || post.uploader_avatar;
+
+            const finalAv = formatAvatar(rawLogo, authorTitle);
+
+            prof = {
+              id: post.user_id || prof?.id || s2Prof?.id || 'creator',
+              channel_name: authorTitle,
+              username: handleName,
+              avatar_url: finalAv,
+              custom_logo_url: rawLogo,
+              logo_url: rawLogo
+            };
+
+            let cleanTitle = post.title || post.description || 'VOEXI Production';
+            if (cleanTitle.endsWith('.mp4') || cleanTitle.endsWith('.mov') || cleanTitle.endsWith('.m3u8') || cleanTitle.startsWith('VID_') || cleanTitle.startsWith('file_')) {
+              cleanTitle = cleanTitle.replace(/\.[^/.]+$/, "").replace(/_/g, " ").replace(/-/g, " ");
+              cleanTitle = cleanTitle.replace(/VID\s*\d+/gi, "VOEXI Studio Release").replace(/recording\s*\d+/gi, "Neural Spectrum Feed");
+            }
+
+            uniqueFeed.push({
+              ...post,
+              title: cleanTitle,
+              profiles: prof
+            });
           }
         }
       }
@@ -615,10 +600,10 @@ export default function VideoFeedScreen() {
   };
 
   useEffect(() => {
-    if (isFocused) {
+    if (videos.length === 0) {
       fetchFeed();
     }
-  }, [isFocused]);
+  }, []);
 
   // Handle target reel scrolling when params change or data loads
   useEffect(() => {
@@ -731,12 +716,6 @@ export default function VideoFeedScreen() {
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       <SafeGestureCamera isActive={gestureEnabled && isFocused} onGesture={handleAirGesture} />
 
-      {/* UPPER LEFT REELS LOGO / TITLE */}
-      <View style={styles.topHeaderLeft} pointerEvents="none">
-        <Ionicons name="film-outline" size={18} color="#A855F7" />
-        <Text style={styles.reelsHeaderTitle}>REELS</Text>
-      </View>
-
       <View style={styles.feedWrapper} onLayout={onFeedLayout}>
         {loading && videos.length === 0 ? (
           <ActivityIndicator size="large" color={VOEXITheme.colors.primary} style={{ flex: 1 }} />
@@ -836,20 +815,12 @@ export default function VideoFeedScreen() {
             {loadingComments ? (
               <ActivityIndicator color={VOEXITheme.colors.primary} style={{ marginVertical: 30 }} />
             ) : (() => {
-              const topLevelComments = commentsList.filter(c => !c.parent_id);
-              const repliesMap: { [parentId: string]: any[] } = {};
-
-              commentsList.forEach(c => {
-                if (c.parent_id) {
-                  if (!repliesMap[c.parent_id]) repliesMap[c.parent_id] = [];
-                  repliesMap[c.parent_id].push(c);
-                }
-              });
+              const { topLevelComments, repliesMap } = CommentService.processCommentThreads(commentsList);
 
               return (
                 <FlatList
                   data={[...topLevelComments].sort((a, b) => (b.is_pinned ? 1 : 0) - (a.is_pinned ? 1 : 0))}
-                  keyExtractor={(item, index) => item?.id ? `${item.id}_${index}` : `cmt_${index}`}
+                  keyExtractor={item => item.id}
                   showsVerticalScrollIndicator={false}
                   style={{ flex: 1, marginVertical: 8 }}
                   ListEmptyComponent={
@@ -871,13 +842,13 @@ export default function VideoFeedScreen() {
                       <View style={{ marginBottom: 12 }}>
                         {/* Parent Comment Card */}
                         <View style={styles.commentCard}>
-                          <TouchableOpacity onPress={() => handleUserProfilePress(item.user_id)}>
+                          <TouchableOpacity onPress={() => handleUserProfilePress(item)}>
                             <Image source={{ uri: avatarUrl }} style={styles.commentAvatar} />
                           </TouchableOpacity>
 
                           <View style={{ flex: 1 }}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                              <TouchableOpacity onPress={() => handleUserProfilePress(item.user_id)}>
+                              <TouchableOpacity onPress={() => handleUserProfilePress(item)}>
                                 <Text style={styles.commentUser}>{userHandle}</Text>
                               </TouchableOpacity>
                               {item.is_pinned && (
@@ -908,11 +879,9 @@ export default function VideoFeedScreen() {
                             <View style={styles.commentActionBar}>
                               <Text style={styles.actionTime}>{timeAgo}</Text>
 
-                              {/* Reply Button with Reply Count */}
+                              {/* Reply Button */}
                               <TouchableOpacity onPress={() => handleReplyPress(item)} style={styles.actionBtn}>
-                                <Text style={[styles.actionBtnTxt, childReplies.length > 0 && { color: '#38BDF8', fontWeight: 'bold' }]}>
-                                  Reply {childReplies.length > 0 ? `(${childReplies.length})` : ''}
-                                </Text>
+                                <Text style={styles.actionBtnTxt}>Reply</Text>
                               </TouchableOpacity>
 
                               {/* 3-Dots Action Button */}
@@ -920,6 +889,19 @@ export default function VideoFeedScreen() {
                                 <Ionicons name="ellipsis-horizontal" size={14} color="#94A3B8" />
                               </TouchableOpacity>
                             </View>
+
+                            {/* INSTAGRAM-STYLE VIEW REPLIES TOGGLE BUTTON */}
+                            {childReplies.length > 0 && !isExpanded && (
+                              <TouchableOpacity
+                                onPress={() => toggleExpandReplies(item.id)}
+                                style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 }}
+                              >
+                                <View style={{ width: 24, height: 1, backgroundColor: '#38BDF8' }} />
+                                <Text style={{ color: '#38BDF8', fontSize: 11, fontWeight: '800' }}>
+                                  View {childReplies.length} {childReplies.length === 1 ? 'reply' : 'replies'} ▾
+                                </Text>
+                              </TouchableOpacity>
+                            )}
                           </View>
 
                           {/* Comment Heart Like Button */}
@@ -932,21 +914,21 @@ export default function VideoFeedScreen() {
                         {/* Expanded Child Replies Thread */}
                         {isExpanded && (
                           <View style={{ marginLeft: 38, borderLeftWidth: 1.5, borderLeftColor: 'rgba(168, 85, 247, 0.4)', paddingLeft: 12 }}>
-                            {childReplies.map((reply, rIdx) => {
+                            {childReplies.map((reply) => {
                               const rUser = reply.profiles?.channel_name || reply.profiles?.username || reply.user || '@viewer';
                               const rAvatar = reply.profiles?.avatar_url || reply.avatar || 'https://via.placeholder.com/50';
                               const rTime = getTimeAgo(reply.created_at);
                               const rLikeState = likedComments[reply.id] || { liked: false, count: reply.likes_count || 0 };
 
                               return (
-                                <View key={reply.id || `r_${rIdx}`} style={[styles.commentCard, { backgroundColor: 'rgba(255,255,255,0.015)', marginBottom: 8 }]}>
-                                  <TouchableOpacity onPress={() => handleUserProfilePress(reply.user_id)}>
+                                <View key={reply.id} style={[styles.commentCard, { backgroundColor: 'rgba(255,255,255,0.015)', marginBottom: 8 }]}>
+                                  <TouchableOpacity onPress={() => handleUserProfilePress(reply)}>
                                     <Image source={{ uri: rAvatar }} style={[styles.commentAvatar, { width: 28, height: 28 }]} />
                                   </TouchableOpacity>
 
                                   <View style={{ flex: 1 }}>
                                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                      <TouchableOpacity onPress={() => handleUserProfilePress(reply.user_id)}>
+                                      <TouchableOpacity onPress={() => handleUserProfilePress(reply)}>
                                         <Text style={[styles.commentUser, { fontSize: 11 }]}>{rUser}</Text>
                                       </TouchableOpacity>
                                       <Text style={styles.replyToBadge}>↳ Replying to {userHandle}</Text>

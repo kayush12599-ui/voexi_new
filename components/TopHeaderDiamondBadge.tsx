@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../hooks/useTheme';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -82,12 +82,6 @@ export function TopHeaderDiamondBadge({ isLight: propIsLight }: TopHeaderDiamond
     };
   }, []);
 
-  useFocusEffect(
-    React.useCallback(() => {
-      fetchDiamondBalance();
-    }, [])
-  );
-
   const formatBalance = (num: number) => {
     if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
     if (num >= 1000) return (num / 1000).toFixed(1) + 'k';
@@ -113,7 +107,7 @@ export function TopHeaderDiamondBadge({ isLight: propIsLight }: TopHeaderDiamond
         end={{ x: 1, y: 1 }}
         style={styles.gradientBg}
       >
-        <GlowingDiamond size={18} glow={glowEnabled} animated />
+        <GlowingDiamond size={14} glow={glowEnabled} animated />
 
         <Text
           style={[
@@ -126,7 +120,7 @@ export function TopHeaderDiamondBadge({ isLight: propIsLight }: TopHeaderDiamond
         </Text>
 
         <View style={[styles.plusBox, { backgroundColor: activeColor.secondaryColor }]}>
-          <Ionicons name="add" size={10} color="#FFFFFF" />
+          <Ionicons name="add" size={8} color="#FFFFFF" />
         </View>
       </LinearGradient>
     </TouchableOpacity>
@@ -135,42 +129,41 @@ export function TopHeaderDiamondBadge({ isLight: propIsLight }: TopHeaderDiamond
 
 const styles = StyleSheet.create({
   badgeContainer: {
-    borderRadius: 18,
-    borderWidth: 1.5,
+    borderRadius: 12,
+    borderWidth: 1,
     overflow: 'hidden',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.7,
-    shadowRadius: 6,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.4,
+    shadowRadius: 3,
+    elevation: 2,
     flexShrink: 0,
     alignSelf: 'center',
-    minWidth: 68,
   },
   badgeContainerLight: {
-    shadowOpacity: 0.35,
-    shadowRadius: 4,
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
   },
   gradientBg: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    gap: 5,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    gap: 3,
   },
   balanceText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '900',
-    letterSpacing: 0.5,
+    letterSpacing: 0.2,
   },
   balanceTextLight: {
     fontWeight: '900',
   },
   plusBox: {
-    width: 15,
-    height: 15,
-    borderRadius: 7.5,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 2,
+    marginLeft: 1,
   },
 });

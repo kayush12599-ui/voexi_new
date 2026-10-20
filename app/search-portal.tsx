@@ -1,270 +1,523 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, TextInput, FlatList, TouchableOpacity, ActivityIndicator, Dimensions, StatusBar, Animated, PanResponder, Modal, Pressable } from 'react-native';
+import React, { useState, useEffect, useRef, memo, useMemo } from 'react';
+import { StyleSheet, View, Text, TextInput, FlatList, TouchableOpacity, ActivityIndicator, Dimensions, StatusBar, Pressable, ScrollView, Alert, Platform } from 'react-native';
 import { Image } from 'expo-image';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import { VOEXITheme } from '../constants/theme';
-import { AIService } from '../lib/aiService';
-import PostCard from '../components/PostCard';
+import { getLocalMediaServerUrl } from '../lib/bunnyStorage';
+import { VoexiIcon } from '../components/VoexiIcon';
+import { formatVxId } from '../components/VXIdentityCard';
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
+const cardWidth = (width - 42) / 2;
 
-const TRENDING_CHIPS = ['Phonk', 'Cyberpunk', 'Neural Art', 'Gaming', 'Tech'];
+const TRENDING_CHIPS = ['Phonk', 'Cyberpunk', 'Neural Art', 'Gaming', 'Tech', 'Music', 'Reels'];
+const FILTER_TABS = ['ALL', 'CHANNELS', 'VIDEOS', 'REELS', 'PHOTOS', 'ARTICLES'];
 
+/* --- 📡 CREATOR CHANNEL CARD COMPONENT --- */
+const SearchChannelCard = memo(({ item }: any) => {
+  const router = useRouter();
+  const avatarUri = item.avatar_url && item.avatar_url.startsWith('http')
+    ? item.avatar_url
+    : `https://ui-avatars.com/api/?name=${encodeURIComponent(item.username || 'Creator')}&background=A855F7&color=fff&bold=true`;
+
+  const officialVxNo = formatVxId(item.vx_id_number || item.vx_number || item.phone_number || item.id);
+
+  return (
+    <TouchableOpacity
+      style={styles.channelCard}
+      onPress={() => router.push(`/user/${item.id}`)}
+      activeOpacity={0.85}
+    >
+      <Image source={{ uri: avatarUri }} style={styles.channelAvatar} />
+      <View style={{ flex: 1, marginLeft: 12, marginRight: 8 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Text style={styles.channelUsername} numberOfLines={1}>@{item.username}</Text>
+          <Ionicons name="checkmark-circle" size={14} color="#00F2FE" />
+        </View>
+        <Text style={styles.channelTitle} numberOfLines={1}>{item.channel_name || 'VOEXI Channel Station'}</Text>
+        <Text style={styles.channelMetaTxt} numberOfLines={1}>💳 IDENTITY NO: {officialVxNo}</Text>
+      </View>
+
+      <TouchableOpacity onPress={() => router.push(`/user/${item.id}`)} style={styles.channelVisitBtn}>
+        <LinearGradient colors={['#A855F7', '#6366F1']} style={styles.channelVisitGradient}>
+          <Text style={styles.channelVisitTxt}>VISIT ➔</Text>
+        </LinearGradient>
+      </TouchableOpacity>
+    </TouchableOpacity>
+  );
+});
+
+/* --- 🎬 MEDIA CONTENT GRID CARD COMPONENT --- */
+const SearchGridCard = memo(({ item }: any) => {
+  const router = useRouter();
+  const pt = (item.post_type || item.category || '').toLowerCase();
+  const isReel = item.is_reel === true || pt === 'reels' || pt === 'reel';
+  const isPhoto = pt === 'photo' || pt === 'photos' || item.isPhoto;
+  const isWriting = pt === 'writing' || pt === 'letter' || item.isText;
+
+  const thumbnail = item.thumbnail_url || item.media_url || '';
+  const title = item.title || item.filename || 'VOEXI Signal';
+  const uploader = item.profiles?.username || item.profiles?.channel_name || item.uploader || 'creator';
+
+  const handleCardPress = () => {
+    if (isReel) {
+      router.push({ pathname: '/(tabs)/video-feed', params: { id: item.id } });
+    } else if (isPhoto || isWriting) {
+      router.push({
+        pathname: '/photo-feed',
+        params: {
+          id: String(item.id || ''),
+          title: String(title),
+          description: String(item.description || ''),
+          content: String(item.content || item.description || ''),
+          media_url: String(item.media_url || thumbnail),
+          thumbnail_url: String(thumbnail),
+          post_type: String(item.post_type || 'Photo'),
+          uploader: String(uploader)
+        }
+      });
+    } else {
+      router.push(`/video/${item.id}`);
+    }
+  };
+
+  return (
+    <TouchableOpacity
+      style={[styles.gridCard, { width: cardWidth }]}
+      onPress={handleCardPress}
+      activeOpacity={0.85}
+    >
+      <View style={styles.gridMediaFrame}>
+        {thumbnail ? (
+          <Image source={{ uri: thumbnail }} style={styles.gridMediaImg} contentFit="cover" />
+        ) : (
+          <View style={styles.gridFallbackBox}>
+            <Ionicons name={isWriting ? "document-text-outline" : "film-outline"} size={28} color="#475569" />
+          </View>
+        )}
+
+        {/* TYPE BADGE */}
+        <View style={styles.gridTypeBadge}>
+          <Text style={styles.gridTypeTxt}>
+            {isReel ? '🎬 REEL' : isPhoto ? '🖼️ PHOTO' : isWriting ? '✍️ ARTICLE' : '📹 VIDEO'}
+          </Text>
+        </View>
+
+        {/* STATS OVERLAY */}
+        <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={styles.gridBottomGradient}>
+          <View style={styles.gridStatsRow}>
+            <Text style={styles.gridViewsTxt}>👁️ {Number(item.views_count || item.views || 0).toLocaleString()}</Text>
+            <Text style={styles.gridLikesTxt}>❤️ {Number(item.likes_count || item.likes || 0).toLocaleString()}</Text>
+          </View>
+        </LinearGradient>
+      </View>
+
+      <View style={styles.gridCardMeta}>
+        <Text style={styles.gridTitle} numberOfLines={1}>{title}</Text>
+        <Text style={styles.gridUploader} numberOfLines={1}>@{uploader}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+});
+
+/* --- MAIN SEARCH PORTAL SCREEN --- */
 export default function SearchPortal() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'Signals' | 'Stations'>('Signals');
-  const [results, setResults] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [userId, setUserId] = useState<string | null>(null);
-
-  // MODES
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [isVoiceActive, setIsVoiceActive] = useState(false);
-  const [lines, setLines] = useState<any[]>([]);
-
-  // ANIMATIONS
-  const glowAnim = useRef(new Animated.Value(0)).current;
-  const voiceScale = useRef(new Animated.Value(1)).current;
-  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const [activeFilter, setActiveFilter] = useState('ALL');
+  const [channelsList, setChannelsList] = useState<any[]>([]);
+  const [mediaList, setMediaList] = useState<any[]>([]);
+  const [allRawChannels, setAllRawChannels] = useState<any[]>([]);
+  const [allRawMedia, setAllRawMedia] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setUserId(data.session?.user?.id || null));
-
-    Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }).start();
-
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(glowAnim, { toValue: 1, duration: 2000, useNativeDriver: false }),
-        Animated.timing(glowAnim, { toValue: 0, duration: 2000, useNativeDriver: false }),
-      ])
-    ).start();
+    initialLoadData();
   }, []);
 
-  const handleSearch = async (text: string) => {
-    setSearchQuery(text);
-    if (!text.trim()) { setResults([]); return; }
-
+  const initialLoadData = async () => {
     setLoading(true);
     try {
-      const { data } = await supabase
-        .from('posts')
-        .select('*, profiles:profiles!posts_user_id_fkey(*), audio_owner:audio_owner_id(*)')
-        .ilike('title', `%${text}%`)
-        .limit(20);
-      setResults(data || []);
+      const localServerUrl = getLocalMediaServerUrl();
+
+      // Parallel fetch from Supabase DB & Local Media Server
+      const [supabasePostsRes, supabaseProfilesRes, penDriveRes] = await Promise.allSettled([
+        supabase.from('posts').select('*, profiles:profiles!posts_user_id_fkey(*)').order('created_at', { ascending: false }).limit(60),
+        supabase.from('profiles').select('*').limit(30),
+        fetch(`${localServerUrl}/files.json`).catch(() => null)
+      ]);
+
+      let dbPosts = (supabasePostsRes.status === 'fulfilled' && supabasePostsRes.value.data) ? supabasePostsRes.value.data : [];
+      let dbProfiles = (supabaseProfilesRes.status === 'fulfilled' && supabaseProfilesRes.value.data) ? supabaseProfilesRes.value.data : [];
+
+      let serverFiles: any[] = [];
+      if (penDriveRes.status === 'fulfilled' && penDriveRes.value && penDriveRes.value.ok) {
+        try {
+          const parsed = await penDriveRes.value.json();
+          if (Array.isArray(parsed)) serverFiles = parsed;
+        } catch (e) {}
+      }
+
+      let localUploads: any[] = [];
+      try {
+        const localRaw = await AsyncStorage.getItem('@my_local_uploads');
+        if (localRaw) {
+          const parsed = JSON.parse(localRaw);
+          if (Array.isArray(parsed)) localUploads = parsed;
+        }
+      } catch (e) {}
+
+      // 1. EXTRACT & MAP ALL CHANNELS
+      const channelMap = new Map<string, any>();
+
+      dbProfiles.forEach((p: any) => {
+        const handle = String(p.username || p.channel_name || '').replace('@', '').trim();
+        if (handle && !channelMap.has(handle.toLowerCase())) {
+          channelMap.set(handle.toLowerCase(), {
+            id: p.id,
+            username: handle,
+            channel_name: p.channel_name || handle,
+            phone_number: p.phone_number || '',
+            vx_id_number: p.vx_id_number || p.vx_number || '',
+            avatar_url: p.avatar_url && p.avatar_url.startsWith('http') ? p.avatar_url : `https://ui-avatars.com/api/?name=${encodeURIComponent(handle)}&background=A855F7&color=fff&bold=true`
+          });
+        }
+      });
+
+      serverFiles.forEach((f: any) => {
+        const u = String(f.uploader || '').replace('@', '').trim();
+        if (u && !channelMap.has(u.toLowerCase())) {
+          channelMap.set(u.toLowerCase(), {
+            id: f.user_id || u,
+            username: u,
+            channel_name: f.uploader || `${u} Station`,
+            phone_number: '',
+            vx_id_number: f.vx_number || f.filename || '',
+            avatar_url: `https://ui-avatars.com/api/?name=${encodeURIComponent(u)}&background=A855F7&color=fff&bold=true`
+          });
+        }
+      });
+
+      localUploads.forEach((p: any) => {
+        const u = String(p.profiles?.username || p.uploader || p.username || '').replace('@', '').trim();
+        if (u && !channelMap.has(u.toLowerCase())) {
+          channelMap.set(u.toLowerCase(), {
+            id: p.user_id || u,
+            username: u,
+            channel_name: p.profiles?.channel_name || p.channel_name || u,
+            phone_number: '',
+            vx_id_number: p.profiles?.vx_id_number || p.vx_number || '',
+            avatar_url: p.profiles?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(u)}&background=A855F7&color=fff&bold=true`
+          });
+        }
+      });
+
+      const extractedChannels = Array.from(channelMap.values());
+      setAllRawChannels(extractedChannels);
+      setChannelsList(extractedChannels);
+
+      // 2. EXTRACT & MAP ALL MEDIA POSTS
+      const mappedServerFiles = serverFiles.map((f: any) => ({
+        id: f.filename || f.id || `server_${Date.now()}_${Math.random()}`,
+        filename: f.filename,
+        title: f.title || f.filename,
+        description: f.description || '',
+        content: f.description || f.content || '',
+        post_type: (f.category === 'WRITING' || f.isText) ? 'Writing' : (f.category === 'PHOTOS' || f.isPhoto ? 'Photo' : 'Video'),
+        media_url: f.media_url || `${localServerUrl}/${encodeURIComponent(f.filename)}`,
+        thumbnail_url: f.customThumb || f.media_url || `${localServerUrl}/${encodeURIComponent(f.filename)}`,
+        likes_count: f.likes || 0,
+        comments_count: f.comments ? f.comments.length : 0,
+        views_count: f.views || 0,
+        created_at: f.uploaded_at || new Date().toISOString(),
+        uploader: f.uploader,
+        profiles: { username: f.uploader || 'admin_creator', channel_name: f.uploader || 'VOEXI Station' }
+      }));
+
+      const combinedMedia = [...localUploads, ...mappedServerFiles, ...dbPosts];
+      const seen = new Set<string>();
+      let finalMedia: any[] = [];
+
+      for (const item of combinedMedia) {
+        if (!item) continue;
+        const key = item.id || item.media_url || item.title;
+        if (key && !seen.has(key)) {
+          seen.add(key);
+          finalMedia.push(item);
+        }
+      }
+
+      setAllRawMedia(finalMedia);
+      setMediaList(finalMedia);
+    } catch (e) {
+      console.error("[SEARCH PORTAL INITIAL LOAD ERROR]:", e);
     } finally {
       setLoading(false);
     }
   };
 
-  const startVoiceSearch = () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    setIsVoiceActive(true);
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(voiceScale, { toValue: 1.2, duration: 600, useNativeDriver: true }),
-        Animated.timing(voiceScale, { toValue: 1, duration: 600, useNativeDriver: true }),
-      ])
-    ).start();
+  const handleSearchTextChange = (text: string) => {
+    setSearchQuery(text);
+    const query = text.trim().toLowerCase();
+    const cleanQuery = query.replace('@', '').trim();
+    const digitsOnly = cleanQuery.replace(/[^0-9]/g, '');
 
-    setTimeout(() => {
-       setIsVoiceActive(false);
-       handleSearch("Neural Frequency");
-    }, 3000);
-  };
-
-  const handleVisionSearch = async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const result = await ImagePicker.launchCameraAsync({ quality: 0.5, base64: true });
-    if (!result.canceled && result.assets[0].base64) {
-      setLoading(true);
-      const keywords = await AIService.analyzeImage(result.assets[0].base64);
-      if (keywords) handleSearch(keywords);
-      else setLoading(false);
+    if (!cleanQuery) {
+      setChannelsList(allRawChannels);
+      setMediaList(allRawMedia);
+      return;
     }
+
+    if (Haptics) Haptics.selectionAsync().catch(() => {});
+
+    // 1. FILTER CHANNELS
+    const filteredChannels = allRawChannels.filter((c: any) => {
+      const u = String(c.username || '').toLowerCase();
+      const name = String(c.channel_name || '').toLowerCase();
+      const phone = String(c.phone_number || '').replace(/[^0-9]/g, '');
+      const vxNo = String(c.vx_id_number || c.vx_number || '').toLowerCase();
+
+      const matchText = u.includes(cleanQuery) || name.includes(cleanQuery) || vxNo.includes(cleanQuery);
+      const matchDigits = digitsOnly.length >= 2 && (phone.includes(digitsOnly) || vxNo.replace(/[^0-9]/g, '').includes(digitsOnly));
+
+      return matchText || matchDigits;
+    });
+
+    setChannelsList(filteredChannels);
+
+    // 2. FILTER MEDIA POSTS
+    const filteredMedia = allRawMedia.filter((m: any) => {
+      const t = String(m.title || '').toLowerCase();
+      const d = String(m.description || '').toLowerCase();
+      const fn = String(m.filename || '').toLowerCase();
+      const id = String(m.id || '').toLowerCase();
+      const u = String(m.profiles?.username || m.uploader || '').toLowerCase();
+      const fnDigits = (fn + id).replace(/[^0-9]/g, '');
+
+      const matchText = t.includes(cleanQuery) || d.includes(cleanQuery) || fn.includes(cleanQuery) || id.includes(cleanQuery) || u.includes(cleanQuery);
+      const matchDigits = digitsOnly.length >= 2 && fnDigits.includes(digitsOnly);
+
+      return matchText || matchDigits;
+    });
+
+    setMediaList(filteredMedia);
   };
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onPanResponderMove: (e, gs) => {
-        const { locationX, locationY } = e.nativeEvent;
-        // Strict boundary check
-        if (locationX > 0 && locationX < width - 60 && locationY > 0 && locationY < 230) {
-          setLines(prev => [...prev, { x: locationX, y: locationY }]);
-        }
-      },
-    })
-  ).current;
+  const clearSearch = () => {
+    setSearchQuery('');
+    setChannelsList(allRawChannels);
+    setMediaList(allRawMedia);
+  };
 
-  const borderColor = glowAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['#1A1A24', VOEXITheme.colors.primary]
-  });
+  // Filter media items based on tab pill selection
+  const displayedMediaList = useMemo(() => {
+    if (activeFilter === 'CHANNELS') return [];
+    if (activeFilter === 'VIDEOS') return mediaList.filter(m => m.post_type === 'Video');
+    if (activeFilter === 'REELS') return mediaList.filter(m => m.is_reel === true || m.post_type === 'Reels' || m.post_type === 'Reel');
+    if (activeFilter === 'PHOTOS') return mediaList.filter(m => m.post_type === 'Photo');
+    if (activeFilter === 'ARTICLES') return mediaList.filter(m => m.post_type === 'Writing');
+    return mediaList;
+  }, [mediaList, activeFilter]);
+
+  const displayedChannelsList = useMemo(() => {
+    if (activeFilter === 'VIDEOS' || activeFilter === 'REELS' || activeFilter === 'PHOTOS' || activeFilter === 'ARTICLES') {
+      return [];
+    }
+    return channelsList;
+  }, [channelsList, activeFilter]);
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" />
-      <LinearGradient colors={['#000', '#050510']} style={StyleSheet.absoluteFill} />
+    <View style={styles.screenContainer}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+        {/* INTEGRATED SEARCH BAR WITH INLINE BACK BUTTON */}
+        <View style={styles.searchBarContainer}>
+          <View style={styles.searchBarInner}>
+            <TouchableOpacity onPress={() => router.back()} style={styles.inlineBackBtn}>
+              <Ionicons name="arrow-back" size={18} color="#FFF" />
+            </TouchableOpacity>
 
-        {/* THE VAN BANNER: PSYCHOLOGICAL SALIENCE */}
-        <Pressable
-          onPress={() => handleSearch('trending')}
-          style={styles.vanContainer}
-        >
-          <Animated.View style={[styles.vanInner, { borderColor: borderColor }]}>
-             <View>
-                <Text style={styles.vanTitle}>NEURAL NETWORK ACTIVE</Text>
-                <Text style={styles.vanSubtitle}>SYNC WITH GLOBAL TRENDS</Text>
-             </View>
-             <MaterialCommunityIcons name="molecule" size={26} color={VOEXITheme.colors.secondary} />
-          </Animated.View>
-        </Pressable>
+            <Ionicons name="search" size={18} color="#A855F7" style={{ marginLeft: 4 }} />
 
-        <View style={styles.header}>
-           <TouchableOpacity onPress={() => router.back()} style={styles.backCircle}>
-              <Ionicons name="chevron-back" size={24} color="#fff" />
-           </TouchableOpacity>
-           <Text style={styles.portalTitle}>NEURAL PORTAL</Text>
-           <View style={{width: 44}} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search @channel, username, VX number, title..."
+              placeholderTextColor="#64748B"
+              value={searchQuery}
+              onChangeText={handleSearchTextChange}
+              selectionColor="#A855F7"
+            />
+
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={clearSearch} style={styles.clearBtn}>
+                <Ionicons name="close-circle" size={18} color="#94A3B8" />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* FILTER CATEGORY PILLS */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
+            {FILTER_TABS.map(tab => {
+              const isSel = activeFilter === tab;
+              return (
+                <TouchableOpacity
+                  key={tab}
+                  style={[styles.filterPill, isSel && styles.filterPillActive]}
+                  onPress={() => {
+                    setActiveFilter(tab);
+                    if (Haptics) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  }}
+                >
+                  <Text style={[styles.filterPillTxt, isSel && styles.filterPillTxtActive]}>{tab}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
         </View>
 
-        <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
-           {/* ADVANCED SEARCH CONSOLE */}
-           <View style={styles.searchSection}>
-              <Animated.View style={[styles.searchBar, { borderColor }]}>
-                 <Ionicons name="search" size={20} color={VOEXITheme.colors.primary} />
-                 <TextInput
-                   style={styles.input}
-                   placeholder="Discover the spectrum..."
-                   placeholderTextColor="#444"
-                   value={searchQuery}
-                   onChangeText={handleSearch}
-                   selectionColor={VOEXITheme.colors.primary}
-                 />
-                 <View style={styles.toolRow}>
-                    <TouchableOpacity onPress={handleVisionSearch} style={styles.toolBtn}>
-                       <Ionicons name="camera" size={22} color="#fff" />
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={startVoiceSearch} style={[styles.toolBtn, {backgroundColor: 'rgba(0, 242, 254, 0.1)'}]}>
-                       <Ionicons name="mic" size={22} color={VOEXITheme.colors.secondary} />
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => setIsDrawing(!isDrawing)} style={[styles.toolBtn, isDrawing && {backgroundColor: 'rgba(168, 85, 247, 0.1)'}]}>
-                       <Ionicons name="pencil" size={20} color={isDrawing ? VOEXITheme.colors.primary : "#fff"} />
-                    </TouchableOpacity>
-                 </View>
-              </Animated.View>
-           </View>
+        {loading ? (
+          <View style={styles.centerLoading}>
+            <ActivityIndicator size="large" color="#A855F7" />
+            <Text style={styles.loadingTxt}>INITIALIZING SEARCH PORTAL...</Text>
+          </View>
+        ) : (
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: insets.bottom + 80 }} showsVerticalScrollIndicator={false}>
 
-           {/* DRAW PAD: CLIPPED & STABLE */}
-           {isDrawing && (
-             <View style={styles.drawSection}>
-                <View style={styles.canvasContainer}>
-                   <View style={styles.canvasHeader}>
-                      <Text style={styles.canvasTitle}>NEURAL SKETCH</Text>
-                      <TouchableOpacity onPress={() => setLines([])}><Text style={styles.clearText}>RESET</Text></TouchableOpacity>
-                   </View>
-                   <View style={styles.canvas} {...panResponder.panHandlers}>
-                      {lines.map((p, i) => (
-                        <View key={i} pointerEvents="none" style={[styles.point, { left: p.x - 2, top: p.y - 2 }]} />
-                      ))}
-                      {lines.length === 0 && <Text style={styles.canvasHint}>Trace a signal concept...</Text>}
-                   </View>
+            {/* 1. RISING FREQUENCIES TRENDING CHIPS WHEN NO SEARCH QUERY (TOP) */}
+            {!searchQuery && activeFilter === 'ALL' && (
+              <View style={styles.trendingSection}>
+                <View style={styles.trendingHeaderRow}>
+                  <Ionicons name="flame" size={14} color="#FFD700" />
+                  <Text style={styles.trendingHeaderTxt}>RISING FREQUENCIES • TRENDING SPECTRUM</Text>
                 </View>
-                <TouchableOpacity style={styles.submitDraw} onPress={() => { setIsDrawing(false); setLines([]); handleSearch("Art"); }}>
-                   <LinearGradient colors={[VOEXITheme.colors.primary, '#6d28d9']} style={styles.drawSubmitBtn}>
-                      <Text style={styles.drawSubmitText}>ANALYZE SKETCH</Text>
-                   </LinearGradient>
-                </TouchableOpacity>
-             </View>
-           )}
+                <View style={styles.chipCloud}>
+                  {TRENDING_CHIPS.map(tag => (
+                    <TouchableOpacity
+                      key={tag}
+                      style={styles.chipPill}
+                      onPress={() => handleSearchTextChange(tag)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.chipTxt}>#{tag.toUpperCase()}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
 
-           <FlatList
-             data={results}
-             keyExtractor={item => item.id}
-             renderItem={({ item }) => <PostCard item={item} currentUserId={userId} />}
-             contentContainerStyle={styles.listContent}
-             ListHeaderComponent={!searchQuery && !isDrawing && (
-                <View style={styles.trendingContainer}>
-                   <Text style={styles.sectionLabel}>RISING FREQUENCIES</Text>
-                   <View style={styles.chipCloud}>
-                      {TRENDING_CHIPS.map(tag => (
-                        <TouchableOpacity key={tag} style={styles.chip} onPress={() => handleSearch(tag)}>
-                           <Text style={styles.chipText}>#{tag.toUpperCase()}</Text>
-                        </TouchableOpacity>
-                      ))}
-                   </View>
+            {/* 2. MATCHING CHANNELS / CREATORS SECTION */}
+            {displayedChannelsList.length > 0 && (
+              <View style={styles.sectionContainer}>
+                <Text style={styles.sectionHeaderTxt}>📡 MATCHING CHANNELS & STATIONS ({displayedChannelsList.length})</Text>
+                {displayedChannelsList.map(item => (
+                  <SearchChannelCard key={`chan_${item.id}_${item.username}`} item={item} />
+                ))}
+              </View>
+            )}
+
+            {/* 3. MATCHING MEDIA POSTS 2-COLUMN GRID */}
+            {displayedMediaList.length > 0 && (
+              <View style={styles.sectionContainer}>
+                <Text style={styles.sectionHeaderTxt}>🎬 MATCHING SIGNALS & MEDIA ({displayedMediaList.length})</Text>
+                <View style={styles.mediaGridRow}>
+                  {displayedMediaList.map(item => (
+                    <SearchGridCard key={`media_${item.id}`} item={item} />
+                  ))}
                 </View>
-             )}
-           />
-        </Animated.View>
+              </View>
+            )}
+
+            {/* 4. EMPTY SEARCH STATE NOTICE */}
+            {searchQuery.length > 0 && displayedChannelsList.length === 0 && displayedMediaList.length === 0 && (
+              <View style={styles.emptyNoticeBox}>
+                <Ionicons name="search-outline" size={48} color="#475569" />
+                <Text style={styles.emptyNoticeTitle}>NO MATCHING STATIONS OR MEDIA</Text>
+                <Text style={styles.emptyNoticeSub}>Try searching for a different handle, username, or VX number.</Text>
+              </View>
+            )}
+
+          </ScrollView>
+        )}
       </SafeAreaView>
-
-      {/* IMMERSIVE VOICE MODAL */}
-      <Modal visible={isVoiceActive} transparent animationType="fade">
-         <View style={styles.voiceOverlay}>
-            <View style={[StyleSheet.absoluteFill, {backgroundColor: 'rgba(0,0,0,0.9)'}]} />
-            <Animated.View style={[styles.voiceCircle, { transform: [{ scale: voiceScale }] }]}>
-               <Ionicons name="mic" size={50} color={VOEXITheme.colors.primary} />
-            </Animated.View>
-            <Text style={styles.voiceTitle}>LISTENING</Text>
-            <Text style={styles.voiceSubtitle}>Speak your thought to the core</Text>
-            <TouchableOpacity style={styles.cancelVoice} onPress={() => setIsVoiceActive(false)}>
-               <Text style={styles.cancelVoiceText}>DISCONNECT</Text>
-            </TouchableOpacity>
-         </View>
-      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
-  vanContainer: { paddingHorizontal: 20, marginTop: 10, marginBottom: 10 },
-  vanInner: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 20, borderWidth: 1 },
-  vanTitle: { color: '#fff', fontSize: 11, fontWeight: '900', letterSpacing: 2 },
-  vanSubtitle: { color: '#444', fontSize: 8, fontWeight: '900', marginTop: 4 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 10 },
-  backCircle: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.05)', justifyContent: 'center', alignItems: 'center' },
-  portalTitle: { color: '#fff', fontSize: 10, fontWeight: '900', letterSpacing: 4, opacity: 0.6 },
-  searchSection: { paddingHorizontal: 20, marginBottom: 20 },
-  searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0A0A0F', borderRadius: 22, height: 64, paddingHorizontal: 20, borderWidth: 1 },
-  input: { flex: 1, color: '#fff', fontSize: 16, fontWeight: '600', marginLeft: 15 },
-  toolRow: { flexDirection: 'row', gap: 10 },
-  toolBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.03)', justifyContent: 'center', alignItems: 'center' },
+  screenContainer: { flex: 1, backgroundColor: '#05050A' },
+  searchBarContainer: { paddingHorizontal: 16, paddingVertical: 10, backgroundColor: '#0A0A10', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.08)' },
+  searchBarInner: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#121222', borderRadius: 20, height: 48, paddingHorizontal: 10, borderWidth: 1, borderColor: 'rgba(168, 85, 247, 0.3)' },
+  inlineBackBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.08)', justifyContent: 'center', alignItems: 'center', marginRight: 2 },
+  searchInput: { flex: 1, color: '#FFF', fontSize: 13, fontWeight: '600', marginLeft: 8 },
+  clearBtn: { padding: 4 },
 
-  drawSection: { paddingHorizontal: 20, marginBottom: 20 },
-  canvasContainer: { height: 250, backgroundColor: '#050508', borderRadius: 25, borderWidth: 1, borderColor: '#1A1A24', overflow: 'hidden' },
-  canvasHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 15, zIndex: 10 },
-  canvasTitle: { color: '#222', fontSize: 9, fontWeight: '900', letterSpacing: 2 },
-  clearText: { color: VOEXITheme.colors.primary, fontSize: 10, fontWeight: '900' },
-  canvas: { flex: 1 },
-  point: { position: 'absolute', width: 4, height: 4, borderRadius: 2, backgroundColor: VOEXITheme.colors.primary },
-  canvasHint: { position: 'absolute', top: '45%', alignSelf: 'center', color: '#111', fontSize: 12, fontWeight: 'bold' },
-  submitDraw: { marginTop: 15, borderRadius: 18, overflow: 'hidden' },
-  drawSubmitBtn: { padding: 18, alignItems: 'center' },
-  drawSubmitText: { color: '#fff', fontWeight: '900', fontSize: 12 },
+  filterPill: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.05)', marginRight: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
+  filterPillActive: { backgroundColor: 'rgba(168, 85, 247, 0.25)', borderColor: '#A855F7' },
+  filterPillTxt: { color: '#64748B', fontSize: 10, fontWeight: '800' },
+  filterPillTxtActive: { color: '#FFF', fontWeight: '900' },
 
-  listContent: { paddingBottom: 100 },
-  trendingContainer: { paddingHorizontal: 25, marginTop: 10 },
-  sectionLabel: { color: '#222', fontSize: 9, fontWeight: '900', letterSpacing: 2, marginBottom: 15 },
-  chipCloud: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  chip: { paddingHorizontal: 16, paddingVertical: 12, backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 15, borderWidth: 1, borderColor: '#1A1A24' },
-  chipText: { color: '#888', fontSize: 12, fontWeight: 'bold' },
+  centerLoading: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
+  loadingTxt: { color: '#A855F7', fontSize: 11, fontWeight: '900', letterSpacing: 1 },
 
-  voiceOverlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', zIndex: 1000 },
-  voiceCircle: { width: 120, height: 120, borderRadius: 60, backgroundColor: 'rgba(168, 85, 247, 0.1)', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: 'rgba(168, 85, 247, 0.3)' },
-  voiceTitle: { color: '#fff', fontSize: 24, fontWeight: '900', marginTop: 30, letterSpacing: 5 },
-  voiceSubtitle: { color: '#666', fontSize: 12, marginTop: 10, fontWeight: 'bold' },
-  cancelVoice: { marginTop: 60, padding: 20 },
-  cancelVoiceText: { color: '#444', fontSize: 12, fontWeight: '900', letterSpacing: 2 }
+  sectionContainer: { paddingHorizontal: 15, marginTop: 14 },
+  sectionHeaderTxt: { color: '#64748B', fontSize: 10, fontWeight: '900', letterSpacing: 1.5, marginBottom: 12 },
+
+  // CHANNEL CARD STYLES
+  channelCard: { width: '100%', flexDirection: 'row', alignItems: 'center', backgroundColor: '#0F0F1A', padding: 12, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(168, 85, 247, 0.4)', marginBottom: 10 },
+  channelAvatar: { width: 44, height: 44, borderRadius: 22, borderWidth: 1.5, borderColor: '#A855F7' },
+  channelUsername: { color: '#FFF', fontSize: 14, fontWeight: '900' },
+  channelTitle: { color: '#94A3B8', fontSize: 11, fontWeight: '700', marginTop: 1 },
+  channelMetaTxt: { color: '#38BDF8', fontSize: 10, fontWeight: '800', marginTop: 2 },
+  channelVisitBtn: { borderRadius: 10, overflow: 'hidden' },
+  channelVisitGradient: { paddingHorizontal: 12, paddingVertical: 6 },
+  channelVisitTxt: { color: '#FFF', fontSize: 10, fontWeight: '900' },
+
+  // MEDIA GRID CARD STYLES
+  mediaGridRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+  gridCard: { marginBottom: 16, borderRadius: 16, backgroundColor: '#0A0A10', overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
+  gridMediaFrame: { width: '100%', aspectRatio: 3 / 4, backgroundColor: '#111', position: 'relative', overflow: 'hidden' },
+  gridMediaImg: { width: '100%', height: '100%' },
+  gridFallbackBox: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0A0A14' },
+  gridTypeBadge: { position: 'absolute', top: 8, left: 8, backgroundColor: 'rgba(10, 10, 18, 0.85)', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)' },
+  gridTypeTxt: { color: '#FFF', fontSize: 8, fontWeight: '900' },
+  gridBottomGradient: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 45, justifyContent: 'flex-end', paddingHorizontal: 8, paddingBottom: 6 },
+  gridStatsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  gridViewsTxt: { color: '#FFF', fontSize: 9, fontWeight: '800' },
+  gridLikesTxt: { color: '#FF017E', fontSize: 9, fontWeight: '800' },
+  gridCardMeta: { padding: 10 },
+  gridTitle: { color: '#FFF', fontSize: 12, fontWeight: '900' },
+  gridUploader: { color: '#64748B', fontSize: 10, fontWeight: '700', marginTop: 2 },
+
+  // TRENDING CHIPS
+  trendingSection: { paddingHorizontal: 15, marginTop: 12, marginBottom: 20 },
+  trendingHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 },
+  trendingHeaderTxt: { color: '#FFD700', fontSize: 10, fontWeight: '900', letterSpacing: 1.5 },
+  chipCloud: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chipPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    backgroundColor: 'rgba(168, 85, 247, 0.12)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(168, 85, 247, 0.3)',
+  },
+  chipPillActive: {
+    backgroundColor: 'rgba(0, 242, 254, 0.25)',
+    borderColor: '#00F2FE',
+  },
+  chipTxt: { color: '#C084FC', fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
+  chipTxtActive: { color: '#00F2FE', fontWeight: '900' },
+
+  emptyNoticeBox: { padding: 40, alignItems: 'center' },
+  emptyNoticeTitle: { color: '#F8FAFC', fontSize: 13, fontWeight: 'bold', marginTop: 12 },
+  emptyNoticeSub: { color: '#64748B', fontSize: 11, marginTop: 4, textAlign: 'center' }
 });

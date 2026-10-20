@@ -7,7 +7,7 @@ export default function NotFoundScreen() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      router.replace('/(tabs)');
+      router.replace('/');
     }, 100);
     return () => clearTimeout(timer);
   }, []);

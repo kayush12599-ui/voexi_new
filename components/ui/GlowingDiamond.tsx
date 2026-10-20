@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { View, StyleSheet, Animated } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
+import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { useDiamondTheme, DiamondColorOption } from '../../hooks/useDiamondTheme';
 
 export type GlowingDiamondSize = 'small' | 'medium' | 'large' | 'xlarge' | 'hero';
@@ -104,14 +105,19 @@ export function GlowingDiamond({
         />
       )}
 
-      {/* REAL 3D DIAMOND ASSET IMAGE */}
-      <ExpoImage
-        source={require('../../assets/images/diamond_3d.png')}
-        style={{ width: dim, height: dim }}
-        contentFit="contain"
-        priority="high"
-        transition={200}
-      />
+      {/* GLOWING VECTOR DIAMOND GEM ICON */}
+      <View style={{ width: dim, height: dim, justifyContent: 'center', alignItems: 'center' }}>
+        <MaterialCommunityIcons
+          name="diamond-stone"
+          size={dim}
+          color={mainGemColor}
+          style={{
+            textShadowColor: mainGemColor,
+            textShadowOffset: { width: 0, height: 0 },
+            textShadowRadius: dim * 0.6,
+          }}
+        />
+      </View>
     </View>
   );
 }

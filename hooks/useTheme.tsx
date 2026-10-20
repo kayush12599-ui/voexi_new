@@ -12,10 +12,19 @@ interface ThemeContextType {
   setInterfaceGlow: (enabled: boolean) => void;
 }
 
+const DEFAULT_THEME_CONTEXT: ThemeContextType = {
+  theme: 'dark',
+  isLight: false,
+  interfaceGlow: true,
+  toggleTheme: () => {},
+  setThemeMode: () => {},
+  setInterfaceGlow: () => {},
+};
+
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<ThemeMode>('dark');
+  const [theme, setTheme] = useState<ThemeMode>('light');
   const [interfaceGlow, setInterfaceGlowState] = useState(true);
 
   useEffect(() => {
@@ -74,7 +83,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 export function useTheme() {
   const context = useContext(ThemeContext);
   if (context === undefined) {
-    throw new Error('useTheme must be used within a ThemeProvider');
+    return DEFAULT_THEME_CONTEXT;
   }
   return context;
 }

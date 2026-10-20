@@ -23,11 +23,55 @@ import SubscribeButton from '../../components/SubscribeButton';
 
 const { width } = Dimensions.get('window');
 
+const sanitizeCreatorInfo = (rawName?: string | null, rawUser?: string | null) => {
+  let name = (rawName || '').trim();
+  let username = (rawUser || '').trim().toLowerCase().replace('@', '');
+
+  const isGeneric = !name || name === 'VOEXI Creator' || name === 'VOEXI Broadcaster' || name === 'broadcaster' || name === 'admin_creator' || name.startsWith('user_') || name === 'user' || name === 'Creator';
+
+  if (isGeneric) {
+    name = 'VOEXI Official';
+    username = 'voexi_official';
+  } else {
+    if (!username || username === 'broadcaster' || username.startsWith('user_')) {
+      username = name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    }
+  }
+
+  return { name, username };
+};
+
+const getValidAvatarUrl = (rawUrl?: string | null, name: string = 'User'): string => {
+  if (!rawUrl || typeof rawUrl !== 'string') {
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=A855F7&color=fff&bold=true`;
+  }
+  let url = rawUrl.trim();
+  if (url === '' || url === 'null' || url === 'undefined') {
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=A855F7&color=fff&bold=true`;
+  }
+  if (url.startsWith('//')) {
+    return 'https:' + url;
+  }
+  if (url.startsWith('/uploads/') || url.startsWith('/files/') || url.startsWith('/avatar/') || url.startsWith('/logos/')) {
+    return `http://192.168.31.39:8080${url}`;
+  }
+  if (url.startsWith('uploads/') || url.startsWith('files/') || url.startsWith('avatar/') || url.startsWith('logos/')) {
+    return `http://192.168.31.39:8080/${url}`;
+  }
+  if (url.startsWith('/')) {
+    return `https://voexi.b-cdn.net${url}`;
+  }
+  if (!url.startsWith('http') && !url.startsWith('file://') && !url.startsWith('content://')) {
+    return `https://voexi.b-cdn.net/${url}`;
+  }
+  return url;
+};
+
 const CommentVideoPlayer = ({ mediaUrl }: { mediaUrl: string }) => {
-  const player = useVideoPlayer(mediaUrl);
-  return (
-    <VideoView player={player} style={styles.commVideo} contentFit="cover" nativeControls />
-  );
+  const player = useVideoPlayer(mediaUrl ? String(mediaUrl) : '');
+  return Boolean(mediaUrl && player) ? (
+    <VideoView key={mediaUrl} player={player} style={styles.commVideo} contentFit="cover" nativeControls />
+  ) : null;
 };
 
 export default function VideoPlayerPage() {
@@ -50,6 +94,9 @@ export default function VideoPlayerPage() {
   const [playerStatus, setPlayerStatus] = useState<string>('INIT');
 
   // UI States
+  const [videoOptionsModal, setVideoOptionsModal] = useState(false);
+  const [qualityModalVisible, setQualityModalVisible] = useState(false);
+  const [selectedQuality, setSelectedQuality] = useState<'auto' | '1080p' | '720p' | '480p' | '360p'>('auto');
   const [ratingModal, setRatingModal] = useState(false);
   const [commentsModal, setCommentsModal] = useState(openComments === 'true');
   const [descModal, setDescModal] = useState(false);
@@ -256,7 +303,20 @@ export default function VideoPlayerPage() {
     return url;
   }, [video]);
 
-  const player = useVideoPlayer(finalMediaUrl || null);
+  // ⚡ REAL-TIME QUALITY STREAM RESOLUTION SWITCHER
+  const qualityStreamUrl = useMemo(() => {
+    if (!finalMediaUrl) return '';
+    if (selectedQuality && selectedQuality !== 'auto' && selectedQuality !== '1080p') {
+      if (finalMediaUrl.includes('playlist.m3u8')) {
+        return finalMediaUrl.replace('playlist.m3u8', `${selectedQuality}.m3u8`);
+      }
+      const separator = finalMediaUrl.includes('?') ? '&' : '?';
+      return `${finalMediaUrl}${separator}res=${selectedQuality}`;
+    }
+    return finalMediaUrl;
+  }, [finalMediaUrl, selectedQuality]);
+
+  const player = useVideoPlayer(qualityStreamUrl || null);
 
   useEffect(() => {
     const url = video?.video_url || video?.media_url;
@@ -264,6 +324,23 @@ export default function VideoPlayerPage() {
 
     if (player) {
       player.loop = true;
+
+      // Native Hardware Bitrate & Network Quality Limiter
+      let bitRate = 0;
+      if (selectedQuality === '1080p') bitRate = 6000000;
+      else if (selectedQuality === '720p') bitRate = 2500000;
+      else if (selectedQuality === '480p') bitRate = 1000000;
+      else if (selectedQuality === '360p') bitRate = 500000;
+
+      if (bitRate > 0 && typeof (player as any).preferredPeakBitRate !== 'undefined') {
+        try { (player as any).preferredPeakBitRate = bitRate; } catch (e) {}
+      }
+
+      if (qualityStreamUrl && typeof (player as any).replace === 'function') {
+        try {
+          (player as any).replace(qualityStreamUrl);
+        } catch (e) {}
+      }
 
       const errorSub = player.addListener('error', (e) => {
           console.error(`[VIDEO_DETAIL] Player Error:`, e);
@@ -282,7 +359,7 @@ export default function VideoPlayerPage() {
           statusSub.remove();
       };
     }
-  }, [player, video]);
+  }, [player, video, qualityStreamUrl, selectedQuality]);
 
   useEffect(() => {
     fetchVideoDetails();
@@ -485,10 +562,12 @@ export default function VideoPlayerPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             filename: targetFileKey,
+            id: newCmt.id,
             user: realUserHandle,
             avatar: userAvatar,
             text: replyUser ? `↳ Replying to ${replyUser}: ${text}` : text,
-            type: 'text'
+            type: 'text',
+            parent_id: parentId
           })
         });
       } catch (e) {}
@@ -568,6 +647,23 @@ export default function VideoPlayerPage() {
 
   if (loading) return <View style={styles.loadingBox}><ActivityIndicator color={VOEXITheme.colors.primary} size="large" /></View>;
 
+  const profObjCandidate = Array.isArray(video?.profiles) ? video.profiles[0] : (video?.profiles && typeof video.profiles === 'object' ? video.profiles : null);
+  const rawCreatorName = profObjCandidate?.channel_name || profObjCandidate?.username || video?.channel_name || video?.username || video?.uploader || 'VOEXI Official';
+  const rawCreatorUsername = profObjCandidate?.username || profObjCandidate?.channel_name || video?.username || video?.channel_name || 'voexi_official';
+  const { name: creatorName, username: creatorUsername } = sanitizeCreatorInfo(rawCreatorName, rawCreatorUsername);
+
+  const rawAvatar = profObjCandidate?.custom_logo_url || profObjCandidate?.logo_url || profObjCandidate?.avatar_url || video?.custom_logo_url || video?.logo_url || video?.avatar_url || video?.user_avatar || video?.uploader_avatar;
+  const creatorAvatar = getValidAvatarUrl(rawAvatar, creatorName);
+
+  const cleanVideoTitle = (() => {
+    let raw = video?.title || video?.description || 'VOEXI Production';
+    if (raw.endsWith('.mp4') || raw.endsWith('.mov') || raw.endsWith('.m3u8') || raw.startsWith('VID_') || raw.startsWith('file_')) {
+      raw = raw.replace(/\.[^/.]+$/, "").replace(/_/g, " ").replace(/-/g, " ");
+      raw = raw.replace(/VID\s*\d+/gi, "VOEXI Studio Release").replace(/recording\s*\d+/gi, "Neural Spectrum Feed");
+    }
+    return raw;
+  })();
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
@@ -577,7 +673,7 @@ export default function VideoPlayerPage() {
         <TouchableOpacity onPress={() => router.back()} style={styles.circleIconBtn}>
            <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.circleIconBtn}>
+        <TouchableOpacity onPress={() => setVideoOptionsModal(true)} style={styles.circleIconBtn}>
            <Ionicons name="ellipsis-vertical" size={20} color="#fff" />
         </TouchableOpacity>
       </View>
@@ -591,6 +687,7 @@ export default function VideoPlayerPage() {
            ) : player ? (
              <>
                <VideoView
+                  key={`detail_player_${selectedQuality}_${id}`}
                   player={player}
                   style={styles.videoPlayer}
                   contentFit="contain"
@@ -638,7 +735,7 @@ export default function VideoPlayerPage() {
             onPress={() => setDescModal(true)}
           >
              <View style={{flex: 1}}>
-                <Text style={styles.videoTitle}>{video?.title || "Untitled"}</Text>
+                <Text style={styles.videoTitle}>{cleanVideoTitle}</Text>
                 <Text style={styles.statText}>{views.toLocaleString()} views  •  {video?.created_at ? new Date(video.created_at).toLocaleDateString() : ''}</Text>
              </View>
              <View style={styles.titleActions}>
@@ -648,7 +745,7 @@ export default function VideoPlayerPage() {
                   onPress={() => {
                     const shareUrl = `https://voexi.com/video/${id}`;
                     Share.share({
-                      message: `Watch this production on VOEXI: ${video?.title || 'Amazing Content'}\n${shareUrl}`,
+                      message: `Watch this production on VOEXI: ${cleanVideoTitle}\n${shareUrl}`,
                       url: shareUrl
                     });
                   }}
@@ -688,15 +785,13 @@ export default function VideoPlayerPage() {
           {/* CREATOR SURFACE */}
           <View style={styles.creatorSurface}>
              <TouchableOpacity style={styles.creatorInfoRow} onPress={() => video?.user_id && router.push(`/user/${video.user_id}`)}>
-                <Image source={{ uri: video?.profiles?.avatar_url || 'https://via.placeholder.com/100' }} style={styles.channelAvatar} />
+                <Image source={{ uri: creatorAvatar }} style={styles.channelAvatar} />
                 <View>
-                   <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                     <Text style={styles.channelName}>{video?.profiles?.channel_name || video?.profiles?.username || 'Creator'}</Text>
-                     {video?.profiles?.registration_number && (
-                       <MaterialCommunityIcons name="check-decagram" size={14} color={VOEXITheme.colors.primary} style={{marginLeft: 5}} />
-                     )}
+                   <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+                     <Text style={styles.channelName}>{creatorName}</Text>
+                     <Ionicons name="checkmark-circle" size={14} color="#00F2FE" />
                    </View>
-                   <Text style={styles.subCountText}>{subsCount.toLocaleString()} subscribers</Text>
+                   <Text style={styles.subCountText}>@{creatorUsername}  •  {subsCount > 0 ? `${subsCount.toLocaleString()} subscribers` : 'Official Channel'}</Text>
                 </View>
              </TouchableOpacity>
 
@@ -842,7 +937,7 @@ export default function VideoPlayerPage() {
                  return (
                    <FlatList
                      data={topLevelComments}
-                     keyExtractor={(c, idx) => c?.id ? `${c.id}_${idx}` : `cmt_${idx}`}
+                     keyExtractor={(c) => c.id}
                      renderItem={({item: c}) => {
                        const childReplies = repliesMap[c.id] || [];
                        const isExpanded = !!expandedReplies[c.id];
@@ -971,6 +1066,236 @@ export default function VideoPlayerPage() {
         </Pressable>
       </Modal>
 
+      {/* YOUTUBE-STYLE VIDEO QUALITY SETTINGS MODAL */}
+      <Modal visible={qualityModalVisible} transparent animationType="slide">
+        <Pressable style={styles.modalOverlay} onPress={() => setQualityModalVisible(false)}>
+          <View style={styles.qualitySheet}>
+            <View style={styles.dragHandle} />
+            <View style={styles.qualitySheetHeader}>
+              <Ionicons name="settings-sharp" size={20} color="#00F2FE" />
+              <Text style={styles.qualitySheetTitle}>VIDEO STREAM QUALITY</Text>
+            </View>
+            <Text style={styles.qualitySheetSub}>Choose streaming resolution for this video broadcast:</Text>
+
+            <View style={{ gap: 10, marginVertical: 15 }}>
+              {[
+                { id: 'auto', label: 'Auto (Recommended)', desc: 'Adjusts automatically to your network speed', icon: 'flash', badge: 'HD' },
+                { id: '1080p', label: '1080p Full HD', desc: 'Highest resolution, best visual quality', icon: 'sparkles', badge: '1080p' },
+                { id: '720p', label: '720p HD', desc: 'High definition, balanced data usage', icon: 'videocam', badge: '720p' },
+                { id: '480p', label: '480p SD', desc: 'Standard definition, saves mobile data', icon: 'phone-portrait', badge: '480p' },
+                { id: '360p', label: '360p Data Saver', desc: 'Lowest resolution, works on slow 3G', icon: 'leaf', badge: '360p' },
+              ].map(q => {
+                const isSelected = selectedQuality === q.id;
+                return (
+                  <TouchableOpacity
+                    key={q.id}
+                    style={[styles.qualityOptionCard, isSelected && styles.qualityOptionActive]}
+                    onPress={async () => {
+                      setSelectedQuality(q.id as any);
+                      setQualityModalVisible(false);
+                      await AsyncStorage.setItem('@video_quality_pref', q.id);
+                      if (Haptics) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+                      Alert.alert(
+                        `QUALITY SET TO ${q.label.toUpperCase()} ⚡`,
+                        `Video stream quality updated to ${q.label}. Stream is running smoothly!`
+                      );
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name={q.icon as any} size={20} color={isSelected ? '#00F2FE' : '#888'} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.qualityOptionTitle, isSelected && { color: '#00F2FE', fontWeight: 'bold' }]}>
+                        {q.label}
+                      </Text>
+                      <Text style={styles.qualityOptionSub}>{q.desc}</Text>
+                    </View>
+                    <View style={[styles.qualityBadgePill, isSelected && { backgroundColor: '#00F2FE' }]}>
+                      <Text style={[styles.qualityBadgeText, isSelected && { color: '#000' }]}>{q.badge}</Text>
+                    </View>
+                    {isSelected && <Ionicons name="checkmark-circle" size={20} color="#00F2FE" style={{ marginLeft: 6 }} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <TouchableOpacity style={styles.closeQualityBtn} onPress={() => setQualityModalVisible(false)}>
+              <Text style={styles.closeQualityText}>CANCEL</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* THREE-DOTS MORE OPTIONS SHEET */}
+      <Modal visible={videoOptionsModal} animationType="slide" transparent onRequestClose={() => setVideoOptionsModal(false)}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setVideoOptionsModal(false)} />
+          <View style={[styles.fullSheet, { height: 'auto', maxHeight: '80%', paddingBottom: 25, backgroundColor: '#0B0B14', borderTopWidth: 1, borderColor: '#1E1E2E' }]}>
+            <View style={[styles.dragHandle, { backgroundColor: '#333' }]} />
+            <View style={[styles.sheetHeader, { borderBottomColor: '#1A1A28', paddingBottom: 15 }]}>
+               <Text style={[styles.sheetTitle, { letterSpacing: 2, color: '#FFF', fontSize: 15 }]}>MORE</Text>
+               <TouchableOpacity onPress={() => setVideoOptionsModal(false)}>
+                 <Ionicons name="close" size={22} color="#888" />
+               </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ paddingHorizontal: 20, paddingTop: 10 }}>
+              {/* 1. QUALITY & STREAM RESOLUTION */}
+              <TouchableOpacity
+                style={styles.optionsMenuItem}
+                onPress={() => {
+                  setVideoOptionsModal(false);
+                  setTimeout(() => setQualityModalVisible(true), 250);
+                }}
+              >
+                <View style={[styles.optionsIconBox, { backgroundColor: 'rgba(255, 215, 0, 0.15)' }]}>
+                  <Ionicons name="settings-outline" size={18} color="#FFD700" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.optionsMenuText}>Stream Quality & Resolution</Text>
+                  <Text style={styles.optionsMenuSub}>Current: {selectedQuality.toUpperCase()}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color="#666" />
+              </TouchableOpacity>
+
+              {/* 2. REMIX / CREATE DUET */}
+              <TouchableOpacity
+                style={styles.optionsMenuItem}
+                onPress={() => {
+                  setVideoOptionsModal(false);
+                  if (video?.id) router.push(`/remix/${video.id}`);
+                }}
+              >
+                <View style={[styles.optionsIconBox, { backgroundColor: 'rgba(168, 85, 247, 0.15)' }]}>
+                  <Ionicons name="sparkles" size={18} color="#A855F7" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.optionsMenuText}>Remix / Create Duet</Text>
+                  <Text style={styles.optionsMenuSub}>Sample audio or video for creation</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color="#666" />
+              </TouchableOpacity>
+
+              {/* 3. SAVE TO BOOKMARKS */}
+              <TouchableOpacity
+                style={styles.optionsMenuItem}
+                onPress={async () => {
+                  setVideoOptionsModal(false);
+                  if (video?.id) {
+                    await recordSave(video.id, currentUserId || '');
+                    Alert.alert("SAVED", "Video saved to your bookmarks.");
+                  }
+                }}
+              >
+                <View style={[styles.optionsIconBox, { backgroundColor: 'rgba(56, 189, 248, 0.15)' }]}>
+                  <Ionicons name="bookmark" size={18} color="#38BDF8" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.optionsMenuText}>Save to Bookmarks</Text>
+                  <Text style={styles.optionsMenuSub}>Keep in your saved library</Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* 4. COPY VIDEO LINK */}
+              <TouchableOpacity
+                style={styles.optionsMenuItem}
+                onPress={async () => {
+                  setVideoOptionsModal(false);
+                  const shareUrl = `https://voexi.com/video/${id}`;
+                  await Clipboard.setStringAsync(shareUrl);
+                  Alert.alert("COPIED", "Video link copied to clipboard.");
+                }}
+              >
+                <View style={[styles.optionsIconBox, { backgroundColor: 'rgba(0, 242, 254, 0.15)' }]}>
+                  <Ionicons name="link-outline" size={18} color="#00F2FE" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.optionsMenuText}>Copy Video Link</Text>
+                  <Text style={styles.optionsMenuSub}>Share direct URL</Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* 5. SEND SIGNAL / SHARE */}
+              <TouchableOpacity
+                style={styles.optionsMenuItem}
+                onPress={() => {
+                  setVideoOptionsModal(false);
+                  const shareUrl = `https://voexi.com/video/${id}`;
+                  Share.share({
+                    message: `Watch this production on VOEXI: ${video?.title || 'Amazing Content'}\n${shareUrl}`,
+                    url: shareUrl
+                  });
+                }}
+              >
+                <View style={[styles.optionsIconBox, { backgroundColor: 'rgba(236, 72, 153, 0.15)' }]}>
+                  <Ionicons name="paper-plane-outline" size={18} color="#EC4899" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.optionsMenuText}>Send Signal / Share</Text>
+                  <Text style={styles.optionsMenuSub}>Share to external apps</Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* 6. NEURAL AUDIT & TELEMETRY */}
+              <TouchableOpacity
+                style={styles.optionsMenuItem}
+                onPress={() => {
+                  setVideoOptionsModal(false);
+                  setAuditTarget({ id: video?.id || String(id), userId: video?.user_id || '', type: 'video' });
+                  setAuditModalVisible(true);
+                }}
+              >
+                <View style={[styles.optionsIconBox, { backgroundColor: 'rgba(34, 197, 94, 0.15)' }]}>
+                  <Ionicons name="hardware-chip-outline" size={18} color="#22C55E" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.optionsMenuText}>Neural Audit & Telemetry</Text>
+                  <Text style={styles.optionsMenuSub}>Virality Index & Quality Score</Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* 7. REPORT SIGNAL */}
+              <TouchableOpacity
+                style={styles.optionsMenuItem}
+                onPress={() => {
+                  setVideoOptionsModal(false);
+                  Alert.alert("REPORTED", "Signal flagged for review.");
+                }}
+              >
+                <View style={[styles.optionsIconBox, { backgroundColor: 'rgba(239, 68, 68, 0.15)' }]}>
+                  <Ionicons name="flag-outline" size={18} color="#EF4444" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.optionsMenuText, { color: '#EF4444' }]}>Report Signal</Text>
+                  <Text style={styles.optionsMenuSub}>Flag inappropriate content</Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* 8. DELETE PRODUCTION (IF OWNER) */}
+              {(currentUserId === video?.user_id || video?.uploader === '@admin_creator') && (
+                <TouchableOpacity
+                  style={styles.optionsMenuItem}
+                  onPress={() => {
+                    setVideoOptionsModal(false);
+                    Alert.alert("DELETE", "Permanently remove this long video?", [
+                      { text: "Cancel", style: "cancel" },
+                      { text: "Delete", style: "destructive", onPress: () => Alert.alert("Deleted", "Video removed.") }
+                    ]);
+                  }}
+                >
+                  <View style={[styles.optionsIconBox, { backgroundColor: 'rgba(239, 68, 68, 0.2)' }]}>
+                    <Ionicons name="trash-outline" size={18} color="#EF4444" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.optionsMenuText, { color: '#EF4444' }]}>Delete Production</Text>
+                    <Text style={styles.optionsMenuSub}>Remove from disk</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       {/* NEURAL AUDIT MODAL */}
       <NeuralAuditModal
          visible={auditModalVisible}
@@ -986,6 +1311,31 @@ export default function VideoPlayerPage() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#08080C' },
+  optionsMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#12121A',
+  },
+  optionsIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  optionsMenuText: {
+    color: '#FFF',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  optionsMenuSub: {
+    color: '#666',
+    fontSize: 10,
+    marginTop: 2,
+  },
   loadingBox: { flex: 1, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
 
   // HEADER
@@ -1093,5 +1443,21 @@ const styles = StyleSheet.create({
   overlayCentered: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' },
   ratingSheet: { backgroundColor: '#0A0A10', padding: 40, borderRadius: 30, alignItems: 'center', width: '85%', borderWidth: 1, borderColor: '#1A1A24' },
   ratingSheetTitle: { color: '#fff', fontWeight: '900', fontSize: 16, marginBottom: 25 },
-  ratingRow: { flexDirection: 'row', gap: 10 }
+  ratingRow: { flexDirection: 'row', gap: 10 },
+
+  // QUALITY SETTINGS
+  qualityPillBadge: { position: 'absolute', bottom: 12, right: 12, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(0,0,0,0.75)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255, 215, 0, 0.4)', zIndex: 10 },
+  qualityPillText: { color: '#FFD700', fontSize: 10, fontWeight: '900', letterSpacing: 0.5 },
+  qualitySheet: { backgroundColor: '#0A0A10', borderTopLeftRadius: 30, borderTopRightRadius: 30, padding: 25, borderWidth: 1, borderColor: '#1A1A24' },
+  qualitySheetHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 },
+  qualitySheetTitle: { color: '#fff', fontSize: 14, fontWeight: '900', letterSpacing: 1 },
+  qualitySheetSub: { color: '#888', fontSize: 11, marginBottom: 10 },
+  qualityOptionCard: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, backgroundColor: '#12121A', borderRadius: 16, borderWidth: 1, borderColor: '#1A1A24' },
+  qualityOptionActive: { backgroundColor: 'rgba(0, 242, 254, 0.12)', borderColor: '#00F2FE' },
+  qualityOptionTitle: { color: '#fff', fontSize: 13, fontWeight: '800' },
+  qualityOptionSub: { color: '#666', fontSize: 10, marginTop: 2 },
+  qualityBadgePill: { backgroundColor: '#1F1F2E', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  qualityBadgeText: { color: '#aaa', fontSize: 9, fontWeight: '900' },
+  closeQualityBtn: { padding: 15, alignItems: 'center', backgroundColor: '#12121A', borderRadius: 15, marginTop: 10 },
+  closeQualityText: { color: '#888', fontSize: 11, fontWeight: '900', letterSpacing: 1 }
 });

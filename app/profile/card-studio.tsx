@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useMemo, useCallback, memo } from 'react';
-import { StyleSheet, View, Text, FlatList, TouchableOpacity, ActivityIndicator, Alert, Dimensions, TextInput } from 'react-native';
+import { StyleSheet, View, Text, FlatList, TouchableOpacity, ActivityIndicator, Alert, Dimensions, TextInput, Switch, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
-import { uploadToBunny } from '../../lib/bunnyStorage';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { uploadToBunny, getLocalMediaServerUrl, uploadAssetToLocalServer } from '../../lib/bunnyStorage';
+import { extractColorFromUri } from '../../lib/colorExtractor';
 import { supabase } from '../../lib/supabase';
 import { CARD_THEMES, CardTheme } from '../../constants/cardThemes';
 import VXIdentityCard from '../../components/VXIdentityCard';
@@ -13,6 +15,11 @@ import { VOEXITheme } from '../../constants/theme';
 
 const { width } = Dimensions.get('window');
 const ITEM_WIDTH = (width - 50) / 3;
+
+const PALETTE_COLORS = [
+  '#00F2FE', '#7C5CFF', '#10B981', '#EC4899', '#FFD700',
+  '#EF4444', '#3B82F6', '#F59E0B', '#8B5CF6', '#14B8A6'
+];
 
 // Optimized Memoized Theme Item for Smooth Gallery Display
 const ThemeGalleryItem = memo(({ theme, isSelected, onSelect }: { theme: CardTheme; isSelected: boolean; onSelect: (id: string) => void }) => {
@@ -56,14 +63,16 @@ export default function CardStudioScreen() {
   const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState<any>(null);
   const [selectedThemeId, setSelectedThemeId] = useState('default');
-  const [customLabel, setCustomLabel] = useState('');
-  const [neuralStatus, setNeuralStatus] = useState('PSYCH-LINK ACTIVE');
   const [customBgUri, setCustomBgUri] = useState<string | null>(null);
   const [bgHasChanged, setBgHasChanged] = useState(false);
+  const [customLogoUri, setCustomLogoUri] = useState<string | null>(null);
+  const [logoHasChanged, setLogoHasChanged] = useState(false);
+  const [blendThemeGlow, setBlendThemeGlow] = useState(false);
+  const [badgeColor, setBadgeColor] = useState<string>('#00F2FE');
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
 
-  // 1. Debounce Search to prevent UI lag
+  // Debounce Search to prevent UI lag
   useEffect(() => {
     const handler = setTimeout(() => setDebouncedQuery(searchQuery), 250);
     return () => clearTimeout(handler);
@@ -86,13 +95,20 @@ export default function CardStudioScreen() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+        const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
         if (data) {
           setProfile(data);
           setSelectedThemeId(data.card_theme || 'default');
-          setCustomLabel(data.custom_label || '');
-          setNeuralStatus(data.neural_status || 'PSYCH-LINK ACTIVE');
-          if (data.card_background_uri) setCustomBgUri(data.card_background_uri);
+          setBlendThemeGlow(data.blend_theme_glow === true);
+          if (data.extracted_primary_color) {
+            setBadgeColor(data.extracted_primary_color);
+          }
+          if (data.card_background_uri || data.card_bg_url || data.custom_bg_uri) {
+            setCustomBgUri(data.card_background_uri || data.card_bg_url || data.custom_bg_uri);
+          }
+          if (data.custom_logo_url || data.logo_url) {
+            setCustomLogoUri(data.custom_logo_url || data.logo_url);
+          }
         }
       }
     } catch (e) {
@@ -119,11 +135,40 @@ export default function CardStudioScreen() {
       });
 
       if (!result.canceled && result.assets && result.assets[0]?.uri) {
-        setCustomBgUri(result.assets[0].uri);
+        const uri = result.assets[0].uri;
+        setCustomBgUri(uri);
+        setSelectedThemeId('custom');
+        const sampled = extractColorFromUri(uri);
+        setBadgeColor(sampled.primary);
         setBgHasChanged(true);
       }
     } catch (e: any) {
       Alert.alert('Error', e.message || 'Could not pick photo');
+    }
+  };
+
+  // Pick custom logo photo from mobile gallery for station logo badge
+  const pickCustomLogo = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Needed', 'Please allow gallery access in settings to set a custom logo.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1], // Square badge logo
+        quality: 0.9,
+      });
+
+      if (!result.canceled && result.assets && result.assets[0]?.uri) {
+        setCustomLogoUri(result.assets[0].uri);
+        setLogoHasChanged(true);
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Could not pick logo photo');
     }
   };
 
@@ -132,39 +177,134 @@ export default function CardStudioScreen() {
     setBgHasChanged(true);
   };
 
+  const removeCustomLogo = () => {
+    setCustomLogoUri(null);
+    setLogoHasChanged(true);
+  };
+
   const handleApplyTheme = async () => {
     setSaving(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        let finalBgUrl = customBgUri;
+      let { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        const { data: sessionData } = await supabase.auth.getSession();
+        user = sessionData?.session?.user || null;
+      }
 
-        if (customBgUri && bgHasChanged) {
-          try {
-            finalBgUrl = await uploadToBunny(customBgUri, 'image');
-          } catch (e) {
-            console.error('Bunny bg photo upload error:', e);
-            finalBgUrl = customBgUri;
-          }
+      if (!user) {
+        Alert.alert("Login Required", "Please login to save card settings.");
+        return;
+      }
+
+      let finalBgUrl = customBgUri;
+      let finalLogoUrl = customLogoUri;
+
+      // 1. Upload BG photo to Local Server 2 High Security Storage + Bunny CDN
+      if (customBgUri && bgHasChanged && customBgUri.startsWith('file:')) {
+        try {
+          const uploadedLocal = await uploadAssetToLocalServer(customBgUri, 'card_bg').catch(() => null);
+          const uploadedBunny = await uploadToBunny(customBgUri, 'image').catch(() => null);
+          if (uploadedLocal) finalBgUrl = uploadedLocal;
+          else if (uploadedBunny) finalBgUrl = uploadedBunny;
+        } catch (e) {
+          console.warn('Bg photo upload fallback:', e);
         }
+      }
 
+      // 2. Upload Logo photo to Local Server 2 High Security Storage + Bunny CDN
+      if (customLogoUri && logoHasChanged && customLogoUri.startsWith('file:')) {
+        try {
+          const uploadedLocalLogo = await uploadAssetToLocalServer(customLogoUri, 'logo').catch(() => null);
+          const uploadedBunnyLogo = await uploadToBunny(customLogoUri, 'image').catch(() => null);
+          if (uploadedLocalLogo) finalLogoUrl = uploadedLocalLogo;
+          else if (uploadedBunnyLogo) finalLogoUrl = uploadedBunnyLogo;
+        } catch (e) {
+          console.warn('Logo photo upload fallback:', e);
+        }
+      }
+
+      const updatePayload: any = {
+        card_background_uri: finalBgUrl || null,
+        card_theme: selectedThemeId,
+        extracted_primary_color: badgeColor,
+        extracted_accent_color: badgeColor,
+        updated_at: new Date().toISOString()
+      };
+
+      if (finalLogoUrl) {
+        updatePayload.custom_logo_url = finalLogoUrl;
+        updatePayload.avatar_url = finalLogoUrl;
+      }
+      if (typeof blendThemeGlow === 'boolean') updatePayload.blend_theme_glow = blendThemeGlow;
+
+      // 3. Save to Server 1 (Supabase DB) with column error fallback
+      let updateError = null;
+      try {
         const { error } = await supabase
           .from('profiles')
-          .update({
-            card_background_uri: finalBgUrl || null,
-            card_theme: selectedThemeId,
-            custom_label: customLabel.trim() || null,
-            neural_status: neuralStatus,
-            updated_at: new Date()
-          })
+          .update(updatePayload)
           .eq('id', user.id);
-
-        if (error) throw error;
-        Alert.alert('Success', 'VX Identity Card theme & background updated successfully!');
-        router.back();
+        updateError = error;
+      } catch (err) {
+        updateError = err;
       }
+
+      // If missing column error on Supabase, fallback retry with core columns
+      if (updateError) {
+        try {
+          await supabase
+            .from('profiles')
+            .update({
+              card_background_uri: finalBgUrl || null,
+              card_theme: selectedThemeId,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', user.id);
+        } catch (e) {}
+      }
+
+      // 4. Update AsyncStorage cached profile
+      const fullPayload = {
+        ...updatePayload,
+        card_background_uri: finalBgUrl,
+        card_bg_url: finalBgUrl,
+        custom_bg_uri: finalBgUrl,
+        custom_logo_url: finalLogoUrl,
+        logo_url: finalLogoUrl,
+        card_theme: selectedThemeId,
+        blend_theme_glow: blendThemeGlow,
+        extracted_primary_color: badgeColor,
+        extracted_accent_color: badgeColor
+      };
+
+      try {
+        const cached = await AsyncStorage.getItem(`@cached_user_profile_${user.id}`);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          await AsyncStorage.setItem(`@cached_user_profile_${user.id}`, JSON.stringify({ ...parsed, ...fullPayload }));
+        } else {
+          await AsyncStorage.setItem(`@cached_user_profile_${user.id}`, JSON.stringify(fullPayload));
+        }
+      } catch (e) {}
+
+      // 5. Dual-Sync Save to Server 2 (Local Media Server)
+      try {
+        const localServerUrl = getLocalMediaServerUrl();
+        await fetch(`${localServerUrl}/api/profiles`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: user.id,
+            ...fullPayload
+          })
+        }).catch(() => {});
+      } catch (e) {}
+
+      Alert.alert('Success', 'VX Identity Card theme, background photo & logo saved successfully on Server!');
+      router.back();
     } catch (e: any) {
-      Alert.alert('Error', e.message);
+      console.error("Save Theme Error:", e);
+      Alert.alert('Error', e.message || 'Failed to save card settings');
     } finally {
       setSaving(false);
     }
@@ -172,7 +312,15 @@ export default function CardStudioScreen() {
 
   const onSelectTheme = useCallback((id: string) => {
     setSelectedThemeId(id);
-  }, []);
+    const themeObj = CARD_THEMES.find(t => t.id === id);
+    if (themeObj?.badgeColors?.[0]) {
+      setBadgeColor(themeObj.badgeColors[0]);
+    }
+    if (!blendThemeGlow) {
+      setCustomBgUri(null);
+      setBgHasChanged(true);
+    }
+  }, [blendThemeGlow]);
 
   const renderThemeItem = useCallback(({ item }: { item: CardTheme }) => (
     <ThemeGalleryItem
@@ -182,12 +330,18 @@ export default function CardStudioScreen() {
     />
   ), [selectedThemeId, onSelectTheme]);
 
-  const mergedProfile = useMemo(() => ({
-    ...profile,
-    card_background_uri: customBgUri,
-    custom_label: customLabel,
-    neural_status: neuralStatus
-  }), [profile, customBgUri, customLabel, neuralStatus]);
+  const selectedTheme = useMemo(() => CARD_THEMES.find(t => t.id === selectedThemeId) || CARD_THEMES[0], [selectedThemeId]);
+
+  const mergedProfile = useMemo(() => {
+    return {
+      ...profile,
+      card_background_uri: customBgUri,
+      custom_logo_url: customLogoUri,
+      blend_theme_glow: blendThemeGlow,
+      extracted_primary_color: badgeColor,
+      extracted_accent_color: badgeColor
+    };
+  }, [profile, customBgUri, customLogoUri, blendThemeGlow, badgeColor]);
 
   if (loading) {
     return (
@@ -213,17 +367,32 @@ export default function CardStudioScreen() {
       <View style={styles.fixedPreview}>
         <View style={styles.previewHeaderRow}>
           <Text style={styles.sectionTitle}>LIVE PREVIEW</Text>
-          <TouchableOpacity onPress={pickCustomCardBackground} activeOpacity={0.8} style={styles.uploadBgBtn}>
-            <Ionicons name="image-outline" size={13} color="#00F2FE" style={{ marginRight: 4 }} />
-            <Text style={styles.uploadBgText}>
-              {customBgUri ? 'CHANGE BG PHOTO' : '🖼️ SET CUSTOM BG PHOTO'}
-            </Text>
-          </TouchableOpacity>
-          {customBgUri && (
-            <TouchableOpacity onPress={removeCustomBackground} style={styles.removeBgBtn}>
-              <Ionicons name="trash-outline" size={12} color="#f43f5e" />
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            <TouchableOpacity onPress={pickCustomCardBackground} activeOpacity={0.8} style={styles.uploadBgBtn}>
+              <Ionicons name="image-outline" size={13} color="#00F2FE" style={{ marginRight: 4 }} />
+              <Text style={styles.uploadBgText}>
+                {customBgUri ? 'CHANGE BG' : '🖼️ SET BG PHOTO'}
+              </Text>
             </TouchableOpacity>
-          )}
+
+            <TouchableOpacity onPress={pickCustomLogo} activeOpacity={0.8} style={[styles.uploadBgBtn, { borderColor: '#A855F7', backgroundColor: 'rgba(168, 85, 247, 0.1)' }]}>
+              <Ionicons name="shield-outline" size={13} color="#A855F7" style={{ marginRight: 4 }} />
+              <Text style={[styles.uploadBgText, { color: '#A855F7' }]}>
+                {customLogoUri ? 'CHANGE LOGO' : '🛡️ SET LOGO'}
+              </Text>
+            </TouchableOpacity>
+
+            {customBgUri && (
+              <TouchableOpacity onPress={removeCustomBackground} style={styles.removeBgBtn}>
+                <Ionicons name="trash-outline" size={12} color="#f43f5e" />
+              </TouchableOpacity>
+            )}
+            {customLogoUri && (
+              <TouchableOpacity onPress={removeCustomLogo} style={styles.removeBgBtn}>
+                <Ionicons name="close-circle-outline" size={12} color="#f43f5e" />
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
 
         {/* CARD PREVIEW */}
@@ -234,13 +403,13 @@ export default function CardStudioScreen() {
           />
         </View>
 
-        {/* CONTROLS ROW: SEARCH & CUSTOM LABEL INPUT */}
+        {/* BLEND THEME GLOW & SEARCH CONTROLS ROW */}
         <View style={styles.controlsRow}>
           <View style={[styles.inputBox, { flex: 1 }]}>
             <Ionicons name="search-outline" size={14} color="#666" style={{ marginRight: 6 }} />
             <TextInput
               style={styles.textInput}
-              placeholder="Search themes..."
+              placeholder="Search themes gallery..."
               placeholderTextColor="#444"
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -252,17 +421,19 @@ export default function CardStudioScreen() {
             )}
           </View>
 
-          <View style={[styles.inputBox, { flex: 1.2 }]}>
-            <Ionicons name="pricetag-outline" size={14} color={VOEXITheme.colors.primary} style={{ marginRight: 6 }} />
-            <TextInput
-              style={styles.textInput}
-              placeholder="Custom Card Label"
-              placeholderTextColor="#444"
-              value={customLabel}
-              onChangeText={setCustomLabel}
-              maxLength={20}
-            />
-          </View>
+          {customBgUri && (
+            <View style={styles.blendToggleBox}>
+              <Ionicons name="sparkles" size={12} color="#FFD700" style={{ marginRight: 4 }} />
+              <Text style={styles.blendToggleText}>Blend Glow</Text>
+              <Switch
+                value={blendThemeGlow}
+                onValueChange={setBlendThemeGlow}
+                thumbColor={blendThemeGlow ? VOEXITheme.colors.primary : '#333'}
+                trackColor={{ false: '#222', true: 'rgba(168, 85, 247, 0.4)' }}
+                style={{ transform: [{ scaleX: 0.7 }, { scaleY: 0.7 }] }}
+              />
+            </View>
+          )}
         </View>
       </View>
 
@@ -300,7 +471,7 @@ export default function CardStudioScreen() {
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
           >
-            {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.applyText}>APPLY CARD THEME</Text>}
+            {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.applyText}>SAVE CARD THEME & OPTIONS</Text>}
           </LinearGradient>
         </TouchableOpacity>
       </View>
@@ -345,7 +516,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   removeBgBtn: {
-    marginLeft: 6,
+    marginLeft: 2,
     padding: 4,
   },
   previewContainer: {
@@ -354,8 +525,8 @@ const styles = StyleSheet.create({
   controlsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    marginTop: 8,
+    gap: 8,
+    marginTop: 4,
   },
   inputBox: {
     flexDirection: 'row',
@@ -371,6 +542,37 @@ const styles = StyleSheet.create({
     flex: 1,
     color: '#fff',
     fontSize: 11,
+  },
+  blendToggleBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 215, 0, 0.08)',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    height: 38,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 215, 0, 0.25)',
+  },
+  blendToggleText: {
+    color: '#FFD700',
+    fontSize: 10,
+    fontWeight: 'bold',
+    marginRight: 2,
+  },
+
+  colorSwatch: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  colorSwatchActive: {
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    transform: [{ scale: 1.15 }],
   },
 
   galleryHeader: {

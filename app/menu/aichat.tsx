@@ -141,6 +141,7 @@ export default function VOEXI_AI_ULTIMATE() {
 
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [serverIp, setServerIp] = useState('');
+  const [apiKey, setCustomApiKey] = useState('');
   const [selectedPersonality, setPersonality] = useState<any>(PERSONALITIES[0]);
 
   const flatListRef = useRef<FlatList>(null);
@@ -150,6 +151,7 @@ export default function VOEXI_AI_ULTIMATE() {
     setupSession();
     checkHealth();
     loadIp();
+    loadApiKey();
     const timer = setInterval(checkHealth, 15000);
     Animated.loop(Animated.timing(rotateAnim, { toValue: 1, duration: 4000, easing: Easing.linear, useNativeDriver: true })).start();
     return () => clearInterval(timer);
@@ -158,6 +160,11 @@ export default function VOEXI_AI_ULTIMATE() {
   const loadIp = async () => {
     const ip = await AIService.getServerIp();
     setServerIp(ip);
+  };
+
+  const loadApiKey = async () => {
+    const key = await AIService.getApiKey();
+    if (key) setCustomApiKey(key);
   };
 
   const checkHealth = async () => {
@@ -268,9 +275,10 @@ export default function VOEXI_AI_ULTIMATE() {
 
   const saveSettings = async () => {
     await AIService.setServerIp(serverIp);
+    await AIService.setApiKey(apiKey);
     setSettingsVisible(false);
     checkHealth();
-    Alert.alert("SYNCED", "Neural uplink configuration updated.");
+    Alert.alert("SYNCED", "Neural uplink and AI API Key updated successfully.");
   };
 
   const pickImage = async () => {
@@ -422,7 +430,20 @@ export default function VOEXI_AI_ULTIMATE() {
                    placeholderTextColor="#444"
                  />
               </View>
-              <Text style={styles.helperText}>Find this by running 'ipconfig' on your laptop. Current Port: 8000</Text>
+
+              <Text style={[styles.inputLabel, { marginTop: 12 }]}>Custom AI API Key (Groq / Gemini / OpenAI)</Text>
+              <View style={styles.settingInputRow}>
+                 <Ionicons name="key-outline" size={20} color="#00D4FF" />
+                 <TextInput
+                   style={styles.settingInput}
+                   value={apiKey}
+                   onChangeText={setCustomApiKey}
+                   placeholder="gsk_... or AIza... or sk-..."
+                   placeholderTextColor="#444"
+                   secureTextEntry
+                 />
+              </View>
+              <Text style={styles.helperText}>Optional: Paste your Groq (gsk_), Gemini (AIza), or OpenAI (sk-) key for unlimited high-speed Real AI responses.</Text>
 
               <TouchableOpacity style={styles.saveBtn} onPress={saveSettings}>
                  <Text style={styles.saveBtnText}>SYNC UPLINK</Text>

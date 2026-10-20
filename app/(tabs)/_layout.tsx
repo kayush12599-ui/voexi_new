@@ -3,6 +3,7 @@ import { Tabs, useRouter, usePathname } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { VOEXITheme } from '../../constants/theme';
 import { View, StyleSheet, Text, Platform, TouchableOpacity } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLanguage } from '../../hooks/useLanguage';
 import { useTheme } from '../../hooks/useTheme';
@@ -18,9 +19,21 @@ import CreateMenuHoloOrbit from '../../components/CreateMenuHoloOrbit';
 function CustomTabBar({ state, descriptors, navigation, isLight, onOpenCreateMenu }: any) {
   const pathname = usePathname();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+
+  const safeBottom = Platform.OS === 'web' ? 0 : (insets.bottom > 0 ? insets.bottom : (Platform.OS === 'android' ? 12 : 0));
 
   return (
-    <View style={[styles.tabBarContainer, isLight && styles.lightTabBarContainer]}>
+    <View
+      style={[
+        styles.tabBarContainer,
+        isLight && styles.lightTabBarContainer,
+        {
+          paddingBottom: safeBottom + 4,
+          height: 52 + safeBottom,
+        }
+      ]}
+    >
       {state.routes.map((route: any, index: number) => {
         const { options } = descriptors[route.key];
         if (options.href === null || route.name === 'subscribe' || route.name === 'menu') {
@@ -38,11 +51,6 @@ function CustomTabBar({ state, descriptors, navigation, isLight, onOpenCreateMen
         const onPress = () => {
           if (route.name === 'upload') {
             onOpenCreateMenu();
-            return;
-          }
-
-          if (route.name === 'chat') {
-            router.push('/menu/chat');
             return;
           }
 
@@ -242,21 +250,21 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: Platform.OS === 'android' ? 68 : 84,
+    height: Platform.OS === 'android' ? 52 : 68,
     backgroundColor: '#000000',
-    borderTopWidth: 1,
-    borderTopColor: '#1A1A1A',
+    borderTopWidth: 0.5,
+    borderTopColor: 'rgba(255, 255, 255, 0.12)',
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
-    paddingBottom: Platform.OS === 'android' ? 8 : 22,
-    paddingTop: 6,
-    elevation: 30,
+    paddingBottom: Platform.OS === 'android' ? 4 : 16,
+    paddingTop: 4,
+    elevation: 20,
     zIndex: 999999,
   },
   lightTabBarContainer: {
     backgroundColor: '#FFFFFF',
-    borderTopColor: '#EEEEEE',
+    borderTopColor: 'rgba(0, 0, 0, 0.08)',
   },
   tabItem: {
     flex: 1,
@@ -271,48 +279,43 @@ const styles = StyleSheet.create({
   iconBox: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 12,
-    borderWidth: 2,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 8,
+    borderWidth: 1,
     borderColor: 'transparent',
   },
   activeYellowOutline: {
     borderColor: '#FFD700',
-    backgroundColor: 'rgba(255, 215, 0, 0.18)',
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    shadowColor: '#FFD700',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.6,
-    shadowRadius: 4,
-    elevation: 5,
+    backgroundColor: 'rgba(255, 215, 0, 0.12)',
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
   },
   tabLabel: {
     fontSize: 9,
-    fontWeight: '800',
-    marginTop: 2,
-    letterSpacing: 0.2,
+    fontWeight: '700',
+    marginTop: 1,
+    letterSpacing: 0.1,
   },
   activeTabLabel: {
     fontWeight: '900',
     color: '#FFD700',
   },
-  // FLOATING CENTER "+" ACTION BUTTON STYLE
+  // FLOATING CENTER "+" ACTION BUTTON STYLE (INSTAGRAM COMPACT MATCH)
   centerPlusButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: -20, // FLOATS PROMINENTLY ABOVE THE NAVIGATION CONTAINER
-    elevation: 15,
+    marginTop: -10,
+    elevation: 10,
     shadowColor: VOEXITheme.colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.9,
-    shadowRadius: 10,
-    borderWidth: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.8,
+    shadowRadius: 6,
+    borderWidth: 1.5,
     borderColor: '#000',
   },
 });

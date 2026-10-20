@@ -106,7 +106,7 @@ export default function RemixCenter() {
   };
 
   const mediaSourceUrl = cleanMediaUrl(sourceData?.video_url || sourceData?.media_url || sourceData?.audio_url || sourceData?.url || '');
-  const player = useVideoPlayer(mediaSourceUrl || null);
+  const player = useVideoPlayer(mediaSourceUrl ? String(mediaSourceUrl) : '');
 
   useEffect(() => {
     if (player && mediaSourceUrl) {
@@ -207,7 +207,7 @@ export default function RemixCenter() {
               <View style={styles.sourceRow}>
                  <View style={styles.visualBox}>
                     {sourceData?.media_type === 'video' || sourceData?.post_type === 'Video' || sourceData?.post_type === 'Reels' || sourceData?.media_url?.includes('.mp4') ? (
-                       <VideoView player={player} style={styles.previewMedia} contentFit="cover" nativeControls={false} />
+                       Boolean(mediaSourceUrl && player) && <VideoView key={mediaSourceUrl} player={player} style={styles.previewMedia} contentFit="cover" nativeControls={false} />
                     ) : (
                        <Image source={{ uri: sourceData?.thumbnail_url || sourceData?.media_url || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400' }} style={styles.previewMedia} />
                     )}

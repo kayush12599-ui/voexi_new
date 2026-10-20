@@ -114,7 +114,7 @@ export default function ChannelEarningsScreen() {
            {analytics.total > 0 && (
              <TouchableOpacity
                 style={styles.withdrawBtn}
-                onPress={() => router.push('/menu/withdraw')}
+                onPress={() => router.push('/menu/monetization')}
              >
                 <LinearGradient
                   colors={[VOEXITheme.colors.primary, '#9333ea']}

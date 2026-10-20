@@ -32,6 +32,7 @@ export default function MonetizationScreen() {
 
   // Real Monetization Status & Criteria State
   const [isMonetized, setIsMonetized] = useState(false);
+  const [monetizationStatus, setMonetizationStatus] = useState<string>('not_applied');
   const [subscribersCount, setSubscribersCount] = useState(0);
   const [totalViewsCount, setTotalViewsCount] = useState(0);
 
@@ -85,6 +86,9 @@ export default function MonetizationScreen() {
   const [withdrawAmount, setWithdrawAmount] = useState('100');
   const [isProcessing, setIsProcessing] = useState(false);
 
+  // Calculator State
+  const [calcViewsInput, setCalcViewsInput] = useState('50000');
+
   // Security PIN States
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [enteredPin, setEnteredPin] = useState('');
@@ -106,11 +110,16 @@ export default function MonetizationScreen() {
         if (prof) {
           setProfile(prof);
           setIsMonetized(!!prof.is_monetized);
+          setMonetizationStatus(prof.monetization_status || 'not_applied');
           if (prof.security_pin) setSavedPin(prof.security_pin);
           if (prof.creator_full_name) setCreatorFullName(prof.creator_full_name);
           if (prof.creator_dob) setCreatorDob(prof.creator_dob);
           if (prof.creator_phone) setCreatorContactPhone(prof.creator_phone);
           if (prof.creator_address) setCreatorAddress(prof.creator_address);
+          if (prof.creator_city) setCreatorCity(prof.creator_city);
+          if (prof.creator_state) setCreatorState(prof.creator_state);
+          if (prof.creator_pincode) setCreatorPincode(prof.creator_pincode);
+          if (prof.creator_govt_id) setCreatorGovtId(prof.creator_govt_id);
         }
 
         const localPin = await AsyncStorage.getItem(`user_sec_pin_${u.id}`);
@@ -261,9 +270,10 @@ export default function MonetizationScreen() {
     setIsSubmittingApp(true);
     try {
       if (user?.id) {
-        // Save Monetization details & unlock creator status on Supabase
+        // Save Monetization details with pending status for Admin Approval
         const { error } = await supabase.from('profiles').update({
-          is_monetized: true,
+          is_monetized: false,
+          monetization_status: 'pending',
           creator_full_name: finalName,
           creator_dob: finalDob,
           creator_phone: finalPhone,
@@ -276,13 +286,15 @@ export default function MonetizationScreen() {
 
         if (error) throw error;
 
-        setIsMonetized(true);
+        setIsMonetized(false);
+        setMonetizationStatus('pending');
         setApplyModalVisible(false);
         setIsSubmittingApp(false);
+
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         Alert.alert(
-          "MONETIZATION UNLOCKED 🚀",
-          "Congratulations! Your channel monetization is verified and active. You can now earn revenue and request cashouts!"
+          "APPLICATION SUBMITTED FOR REVIEW ⏳",
+          "Your monetization application has been successfully submitted! Please wait while Voexi Admin reviews and approves your application."
         );
       }
     } catch (e: any) {
@@ -379,6 +391,52 @@ export default function MonetizationScreen() {
     }
   };
 
+  const handleResetTestingStatus = async () => {
+    Alert.alert(
+      "🛠️ DEV MONETIZATION TEST CONTROL",
+      "Switch or reset monetization status in Supabase for testing Expo Go:",
+      [
+        {
+          text: "1. RESET TO NOT APPLIED (Show Gateway)",
+          onPress: async () => {
+            if (user?.id) {
+              await supabase.from('profiles').update({ is_monetized: false, monetization_status: 'not_applied' }).eq('id', user.id);
+              setIsMonetized(false);
+              setMonetizationStatus('not_applied');
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              Alert.alert("Reset Complete", "Status set to Not Applied (Gateway active).");
+            }
+          }
+        },
+        {
+          text: "2. SET TO PENDING (Show Under Review)",
+          onPress: async () => {
+            if (user?.id) {
+              await supabase.from('profiles').update({ is_monetized: false, monetization_status: 'pending' }).eq('id', user.id);
+              setIsMonetized(false);
+              setMonetizationStatus('pending');
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              Alert.alert("Set Pending Complete", "Status set to Pending (Under Review active).");
+            }
+          }
+        },
+        {
+          text: "3. SET TO APPROVED (Show Unlocked)",
+          onPress: async () => {
+            if (user?.id) {
+              await supabase.from('profiles').update({ is_monetized: true, monetization_status: 'approved' }).eq('id', user.id);
+              setIsMonetized(true);
+              setMonetizationStatus('approved');
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              Alert.alert("Approved Complete", "Status set to Approved (Unlocked active).");
+            }
+          }
+        },
+        { text: "Cancel", style: "cancel" }
+      ]
+    );
+  };
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -399,7 +457,11 @@ export default function MonetizationScreen() {
           <Ionicons name="chevron-back" size={24} color={isLight ? '#000' : '#fff'} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, isLight && { color: '#000' }]}>CREATOR MONETIZATION HUB</Text>
-        <TouchableOpacity style={styles.infoBtn} onPress={() => Alert.alert("MONETIZATION REQUIREMENTS", "1. 500 Subscribers Required\n2. 100,000 Views Required\n3. Phone & Email OTP Verification\n4. Creator Contact Address & Details.")}>
+        <TouchableOpacity
+          style={styles.infoBtn}
+          onPress={() => Alert.alert("MONETIZATION REQUIREMENTS", "1. 500 Subscribers Required\n2. 100,000 Views Required\n3. Phone & Email OTP Verification\n4. Creator Contact Address & Details.\n\nTip: Long-press this icon to open Dev Test Control to switch status.")}
+          onLongPress={handleResetTestingStatus}
+        >
           <Ionicons name="information-circle-outline" size={22} color={THEME.accent} />
         </TouchableOpacity>
       </View>
@@ -407,73 +469,67 @@ export default function MonetizationScreen() {
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
 
         {/* ============================================================ */}
-        {/* IF NOT MONETIZED YET: SHOW MONETIZATION APPLICATION GATEWAY */}
+        {/* CONDITIONAL DISPLAY BASED ON MONETIZATION APPLICATION STATUS */}
         {/* ============================================================ */}
-        {!isMonetized ? (
+        {(monetizationStatus === 'pending' || monetizationStatus === 'under_review') ? (
+          /* ============================================================ */
+          /* 1. IF PENDING / UNDER REVIEW: WAITING FOR ADMIN APPROVAL     */
+          /* ============================================================ */
           <View style={{ gap: 20 }}>
-            <LinearGradient colors={['#1e1b4b', '#0f172a', '#000']} style={styles.gatewayCard}>
+            <LinearGradient colors={['#312e81', '#1e1b4b', '#000']} style={styles.gatewayCard}>
               <View style={{ alignItems: 'center', marginBottom: 15 }}>
-                <View style={styles.gatewayLockCircle}>
-                  <Ionicons name="lock-closed" size={28} color={THEME.gold} />
+                <View style={[styles.gatewayLockCircle, { borderColor: THEME.gold, backgroundColor: 'rgba(255, 215, 0, 0.15)' }]}>
+                  <Ionicons name="time" size={30} color={THEME.gold} />
                 </View>
-                <Text style={styles.gatewayTitle}>CREATOR MONETIZATION GATEWAY</Text>
-                <Text style={styles.gatewaySub}>
-                  Unlock Withdrawable Balance, Virtual Gift Revenue, and Short Video View Earnings.
+                <View style={{ backgroundColor: 'rgba(255, 215, 0, 0.2)', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12, marginBottom: 8 }}>
+                  <Text style={{ color: THEME.gold, fontSize: 10, fontWeight: '900', letterSpacing: 1 }}>⏳ APPLICATION UNDER REVIEW</Text>
+                </View>
+                <Text style={styles.gatewayTitle}>APPLICATION SUBMITTED SUCCESSFUL 🎉</Text>
+                <Text style={[styles.gatewaySub, { marginTop: 6, lineHeight: 18 }]}>
+                  Your Creator Monetization Application has been submitted to Voexi Admin team. Please wait while admin verifies your details and approves your channel for earning.
                 </Text>
               </View>
 
-              {/* MILESTONES PROGRESS TRACKERS */}
-              <View style={{ gap: 14, marginVertical: 10 }}>
-                {/* SUBSCRIBERS BAR */}
-                <View style={styles.milestoneBox}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Ionicons name="people" size={16} color={THEME.secondary} />
-                      <Text style={styles.milestoneLabel}>SUBSCRIBERS REQUIREMENT</Text>
-                    </View>
-                    <Text style={[styles.milestoneCount, subscribersCount >= 500 && { color: THEME.accent }]}>
-                      {subscribersCount} / 500
-                    </Text>
-                  </View>
-                  <View style={styles.progressTrack}>
-                    <View style={[styles.progressFill, { width: `${Math.min((subscribersCount / 500) * 100, 100)}%`, backgroundColor: subscribersCount >= 500 ? THEME.accent : THEME.secondary }]} />
-                  </View>
+              {/* CREATOR SUBMITTED DETAILS SUMMARY BOX */}
+              <View style={{ backgroundColor: '#05050A', padding: 16, borderRadius: 18, borderWidth: 1, borderColor: '#1C1C2E', gap: 10, marginVertical: 10 }}>
+                <Text style={{ color: '#888', fontSize: 10, fontWeight: '900', letterSpacing: 1 }}>SUBMITTED APPLICATION DETAILS</Text>
+
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <Text style={{ color: '#aaa', fontSize: 11 }}>Legal Name:</Text>
+                  <Text style={{ color: '#fff', fontSize: 11, fontWeight: 'bold' }}>{creatorFullName || 'Submitted'}</Text>
                 </View>
 
-                {/* VIEWS BAR */}
-                <View style={styles.milestoneBox}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Ionicons name="eye" size={16} color={THEME.purple} />
-                      <Text style={styles.milestoneLabel}>TOTAL VIEWS REQUIREMENT</Text>
-                    </View>
-                    <Text style={[styles.milestoneCount, totalViewsCount >= 100000 && { color: THEME.accent }]}>
-                      {totalViewsCount.toLocaleString()} / 100,000
-                    </Text>
-                  </View>
-                  <View style={styles.progressTrack}>
-                    <View style={[styles.progressFill, { width: `${Math.min((totalViewsCount / 100000) * 100, 100)}%`, backgroundColor: totalViewsCount >= 100000 ? THEME.accent : THEME.purple }]} />
-                  </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <Text style={{ color: '#aaa', fontSize: 11 }}>Date of Birth:</Text>
+                  <Text style={{ color: '#fff', fontSize: 11, fontWeight: 'bold' }}>{creatorDob || 'Submitted'}</Text>
+                </View>
+
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <Text style={{ color: '#aaa', fontSize: 11 }}>Contact Phone:</Text>
+                  <Text style={{ color: '#fff', fontSize: 11, fontWeight: 'bold' }}>{creatorContactPhone || 'Submitted'}</Text>
+                </View>
+
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <Text style={{ color: '#aaa', fontSize: 11 }}>Address:</Text>
+                  <Text style={{ color: '#fff', fontSize: 11, fontWeight: 'bold', maxWidth: '60%', textAlign: 'right' }}>
+                    {creatorAddress ? `${creatorAddress}, ${creatorCity || ''}` : 'Submitted'}
+                  </Text>
                 </View>
               </View>
 
-              {/* APPLY NOW BUTTON */}
+              {/* REFRESH STATUS BUTTON */}
               <TouchableOpacity
-                style={styles.applyBtn}
+                style={[styles.applyBtn, { marginTop: 12 }]}
                 onPress={() => {
-                  setApplicationStep(1);
-                  setApplyModalVisible(true);
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  fetchEarnings();
+                  Alert.alert("STATUS CHECKED 🔄", "Current Status: Pending Admin Approval. Once Admin approves, your Earning Hub will automatically unlock.");
                 }}
                 activeOpacity={0.8}
               >
-                <LinearGradient
-                  colors={isEligibleToApply ? ['#10B981', '#059669'] : ['#7C5CFF', '#4C1D95']}
-                  style={styles.applyGradient}
-                >
-                  <Ionicons name={isEligibleToApply ? "checkmark-circle" : "rocket"} size={20} color="#fff" />
-                  <Text style={styles.applyBtnText}>
-                    {isEligibleToApply ? "ELIGIBLE! APPLY FOR MONETIZATION" : "APPLY FOR MONETIZATION"}
-                  </Text>
+                <LinearGradient colors={['#7C5CFF', '#4C1D95']} style={styles.applyGradient}>
+                  <Ionicons name="refresh" size={18} color="#fff" />
+                  <Text style={styles.applyBtnText}>REFRESH STATUS / CHECK ADMIN APPROVAL</Text>
                 </LinearGradient>
               </TouchableOpacity>
             </LinearGradient>
@@ -500,12 +556,47 @@ export default function MonetizationScreen() {
               </View>
             </View>
           </View>
-        ) : (
+        ) : (monetizationStatus === 'rejected') ? (
           /* ============================================================ */
-          /* IF MONETIZED: UNLOCKED CREATOR EARNINGS DASHBOARD            */
+          /* 2. IF REJECTED: RE-APPLY FOR MONETIZATION                   */
           /* ============================================================ */
           <View style={{ gap: 20 }}>
-            {/* HUMAN HAPPINESS & CREATOR CELEBRATION BANNER (AT THE VERY LAST / UNLOCKED) */}
+            <LinearGradient colors={['#450a0a', '#18181b', '#000']} style={styles.gatewayCard}>
+              <View style={{ alignItems: 'center', marginBottom: 15 }}>
+                <View style={[styles.gatewayLockCircle, { borderColor: '#FF4444', backgroundColor: 'rgba(255, 68, 68, 0.15)' }]}>
+                  <Ionicons name="close-circle" size={30} color="#FF4444" />
+                </View>
+                <View style={{ backgroundColor: 'rgba(255, 68, 68, 0.2)', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12, marginBottom: 8 }}>
+                  <Text style={{ color: '#FF4444', fontSize: 10, fontWeight: '900', letterSpacing: 1 }}>❌ APPLICATION REJECTED</Text>
+                </View>
+                <Text style={styles.gatewayTitle}>MONETIZATION NOT APPROVED</Text>
+                <Text style={[styles.gatewaySub, { marginTop: 6, lineHeight: 18 }]}>
+                  Your application was reviewed and rejected by Voexi Admin. Please verify your legal details and eligibility criteria before applying again.
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.applyBtn, { marginTop: 12 }]}
+                onPress={() => {
+                  setMonetizationStatus('not_applied');
+                  setApplicationStep(1);
+                  setApplyModalVisible(true);
+                }}
+                activeOpacity={0.8}
+              >
+                <LinearGradient colors={['#EF4444', '#DC2626']} style={styles.applyGradient}>
+                  <Ionicons name="refresh-circle" size={20} color="#fff" />
+                  <Text style={styles.applyBtnText}>RE-APPLY FOR MONETIZATION</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </LinearGradient>
+          </View>
+        ) : (monetizationStatus === 'approved' || isMonetized) ? (
+          /* ============================================================ */
+          /* 3. IF APPROVED / MONETIZED: UNLOCKED CREATOR DASHBOARD       */
+          /* ============================================================ */
+          <View style={{ gap: 20 }}>
+            {/* HUMAN HAPPINESS & CREATOR CELEBRATION BANNER */}
             <LinearGradient
               colors={['#065f46', '#047857', '#064e3b']}
               style={styles.happinessBanner}
@@ -604,6 +695,51 @@ export default function MonetizationScreen() {
               </View>
             </View>
 
+            {/* INTERACTIVE VIEWS & EARNINGS CALCULATOR */}
+            <View style={styles.section}>
+              <Text style={[styles.sectionLabel, isLight && { color: '#888' }]}>ANALYTICS & VIEWS CALCULATOR</Text>
+              <View style={[styles.streamCard, { flexDirection: 'column', alignItems: 'stretch', padding: 18, backgroundColor: 'rgba(16, 185, 129, 0.08)', borderColor: 'rgba(16, 185, 129, 0.3)', borderWidth: 1 }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <MaterialCommunityIcons name="calculator-variant" size={24} color={THEME.accent} />
+                    <Text style={[styles.streamTitle, { fontSize: 14, fontWeight: 'bold' }]}>ESTIMATED REVENUE CALCULATOR</Text>
+                  </View>
+                  <View style={{ backgroundColor: 'rgba(16, 185, 129, 0.2)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 }}>
+                    <Text style={{ color: THEME.accent, fontSize: 10, fontWeight: 'bold' }}>₹0.01 / VIEW</Text>
+                  </View>
+                </View>
+
+                <Text style={{ color: '#8E8E93', fontSize: 11, marginBottom: 10 }}>Enter projected views to calculate your estimated payout and coins:</Text>
+
+                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#000', borderRadius: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: '#222' }}>
+                  <Ionicons name="eye-outline" size={18} color={THEME.secondary} />
+                  <TextInput
+                    style={{ flex: 1, color: '#FFF', fontSize: 15, fontWeight: 'bold', paddingVertical: 10, marginLeft: 8 }}
+                    placeholder="Enter views e.g. 50000"
+                    placeholderTextColor="#555"
+                    keyboardType="numeric"
+                    value={calcViewsInput}
+                    onChangeText={setCalcViewsInput}
+                  />
+                </View>
+
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)' }}>
+                  <View>
+                    <Text style={{ color: '#8E8E93', fontSize: 10 }}>ESTIMATED PAYOUT</Text>
+                    <Text style={{ color: THEME.accent, fontSize: 20, fontWeight: 'bold', marginTop: 2 }}>
+                      ₹{((parseInt(calcViewsInput) || 0) * 0.01).toLocaleString('en-IN')}.00
+                    </Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ color: '#8E8E93', fontSize: 10 }}>EQUIVALENT COINS</Text>
+                    <Text style={{ color: THEME.gold, fontSize: 16, fontWeight: 'bold', marginTop: 2 }}>
+                      {((parseInt(calcViewsInput) || 0) * 10).toLocaleString()} Coins
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+
             {/* REAL PAYOUT REQUESTS HISTORY LOG */}
             <View style={styles.section}>
               <Text style={[styles.sectionLabel, isLight && { color: '#888' }]}>REAL PAYOUT REQUESTS HISTORY</Text>
@@ -647,6 +783,100 @@ export default function MonetizationScreen() {
                   ))}
                 </View>
               )}
+            </View>
+          </View>
+        ) : (
+          /* ============================================================ */
+          /* 4. IF NOT APPLIED YET: SHOW MONETIZATION APPLICATION GATEWAY */
+          /* ============================================================ */
+          <View style={{ gap: 20 }}>
+            <LinearGradient colors={['#1e1b4b', '#0f172a', '#000']} style={styles.gatewayCard}>
+              <View style={{ alignItems: 'center', marginBottom: 15 }}>
+                <View style={styles.gatewayLockCircle}>
+                  <Ionicons name="lock-closed" size={28} color={THEME.gold} />
+                </View>
+                <Text style={styles.gatewayTitle}>CREATOR MONETIZATION GATEWAY</Text>
+                <Text style={styles.gatewaySub}>
+                  Unlock Withdrawable Balance, Virtual Gift Revenue, and Short Video View Earnings.
+                </Text>
+              </View>
+
+              {/* MILESTONES PROGRESS TRACKERS */}
+              <View style={{ gap: 14, marginVertical: 10 }}>
+                {/* SUBSCRIBERS BAR */}
+                <View style={styles.milestoneBox}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="people" size={16} color={THEME.secondary} />
+                      <Text style={styles.milestoneLabel}>SUBSCRIBERS REQUIREMENT</Text>
+                    </View>
+                    <Text style={[styles.milestoneCount, subscribersCount >= 500 && { color: THEME.accent }]}>
+                      {subscribersCount} / 500
+                    </Text>
+                  </View>
+                  <View style={styles.progressTrack}>
+                    <View style={[styles.progressFill, { width: `${Math.min((subscribersCount / 500) * 100, 100)}%`, backgroundColor: subscribersCount >= 500 ? THEME.accent : THEME.secondary }]} />
+                  </View>
+                </View>
+
+                {/* VIEWS BAR */}
+                <View style={styles.milestoneBox}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="eye" size={16} color={THEME.purple} />
+                      <Text style={styles.milestoneLabel}>TOTAL VIEWS REQUIREMENT</Text>
+                    </View>
+                    <Text style={[styles.milestoneCount, totalViewsCount >= 100000 && { color: THEME.accent }]}>
+                      {totalViewsCount.toLocaleString()} / 100,000
+                    </Text>
+                  </View>
+                  <View style={styles.progressTrack}>
+                    <View style={[styles.progressFill, { width: `${Math.min((totalViewsCount / 100000) * 100, 100)}%`, backgroundColor: totalViewsCount >= 100000 ? THEME.accent : THEME.purple }]} />
+                  </View>
+                </View>
+              </View>
+
+              {/* APPLY NOW BUTTON */}
+              <TouchableOpacity
+                style={styles.applyBtn}
+                onPress={() => {
+                  setApplicationStep(1);
+                  setApplyModalVisible(true);
+                }}
+                activeOpacity={0.8}
+              >
+                <LinearGradient
+                  colors={isEligibleToApply ? ['#10B981', '#059669'] : ['#7C5CFF', '#4C1D95']}
+                  style={styles.applyGradient}
+                >
+                  <Ionicons name={isEligibleToApply ? "checkmark-circle" : "rocket"} size={20} color="#fff" />
+                  <Text style={styles.applyBtnText}>
+                    {isEligibleToApply ? "ELIGIBLE! APPLY FOR MONETIZATION" : "APPLY FOR MONETIZATION"}
+                  </Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </LinearGradient>
+
+            {/* MONETIZATION BENEFITS HIGHLIGHTS */}
+            <View style={styles.section}>
+              <Text style={[styles.sectionLabel, isLight && { color: '#888' }]}>MONETIZATION BENEFITS</Text>
+              <View style={{ gap: 10 }}>
+                {[
+                  { title: '🎁 Live Virtual Gifts', desc: 'Receive gifts in Cluster Chat & Streams and cashout to UPI.', icon: 'gift' },
+                  { title: '📽️ Short Video View Revenue', desc: 'Earn ₹50 per 1,000 verified video views.', icon: 'videocam' },
+                  { title: '💸 Instant UPI Cashouts', desc: 'Withdraw earnings to PhonePe, Paytm, or Bank in 24 hours.', icon: 'cash' },
+                ].map((b, idx) => (
+                  <View key={idx} style={[styles.streamCard, isLight && { backgroundColor: '#F9F9F9', borderColor: '#EEE' }]}>
+                    <View style={[styles.streamIconBox, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
+                      <Ionicons name={b.icon as any} size={20} color={THEME.accent} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.streamTitle, isLight && { color: '#000' }]}>{b.title}</Text>
+                      <Text style={styles.streamSub}>{b.desc}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
             </View>
           </View>
         )}

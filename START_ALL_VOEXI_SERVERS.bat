@@ -1,23 +1,22 @@
 @echo off
-title VOEXI Master Server Suite Launcher
-echo ==========================================================
-echo 🚀 STARTING ALL VOEXI BACKEND & MEDIA SERVERS
-echo ==========================================================
+title Launching All VOEXI Servers...
+color 0A
 
-echo [1/3] Starting VOEXI Media Server (Port 8080)...
-start "VOEXI Media Server (8080)" cmd /k "node C:\vibroxe_new\scripts\pendrive_server.js"
+echo ========================================================
+echo       🚀 LAUNCHING ALL VOEXI SERVERS AND STORAGE
+echo ========================================================
+echo.
 
-echo [2/3] Starting VOEXI 3D Avatar Server (Port 8085)...
-start "VOEXI 3D Avatar Server (8085)" cmd /k "node C:\vibroxe_new\scripts\avatar_server.js"
+echo [1/2] Launching Local Media Server 2 (Port 8080)...
+start "VOEXI Media Storage Server" cmd /k "node scripts/pendrive_server.js"
 
-echo [3/3] Starting VOEXI AI Neural Server (Port 8000)...
-start "VOEXI AI Neural Core (8000)" cmd /k "python C:\vibroxe_new\vnc_server.py"
+echo.
+echo [2/2] Launching VOEXI Web App Server...
+start "VOEXI Web App Server" cmd /k "Double_Click_To_Open_VOEXI.bat"
 
-echo ==========================================================
-echo ✅ ALL SERVERS LAUNCHED SUCCESSFULLY!
-echo ----------------------------------------------------------
-echo 📂 Media Server:    http://192.168.31.39:8080
-echo 💃 3D Avatar Server: http://192.168.31.39:8085
-echo 🧠 AI Neural Core:   http://192.168.31.39:8000
-echo ==========================================================
+echo.
+echo ✅ All Servers Successfully Started!
+echo 🌐 Web App:       http://localhost:8081
+echo 💾 Media Storage: http://192.168.31.39:8080
+echo.
 pause
