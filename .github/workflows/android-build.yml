@@ -27,24 +27,22 @@ jobs:
 
       - name: 4. Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          api-level: 34
+          build-tools: 34.0.0
 
       - name: 5. Install Dependencies
         run: |
-          npm ci --legacy-peer-deps || npm install --legacy-peer-deps
+          npm install --legacy-peer-deps
 
-      - name: 6. Prebuild Android Project
+      - name: 6. Install EAS CLI & Build APK
         run: |
-          npx expo prebuild --platform android --clean
+          npm install -g eas-cli
+          npx eas-cli build --platform android --profile preview --local --non-interactive
 
-      - name: 7. Build APK with Gradle
-        run: |
-          cd android
-          chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon --stacktrace
-
-      - name: 8. Upload Android APK Artifact
+      - name: 7. Upload Android APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: VOEXI-Android-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: "*.apk"
           if-no-files-found: error
