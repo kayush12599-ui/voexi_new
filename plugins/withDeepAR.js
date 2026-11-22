@@ -1,4 +1,14 @@
-const { withAndroidManifest, withAppBuildGradle, withProjectBuildGradle, withDangerousMod } = require('@expo/config-plugins');
+let configPlugins;
+try {
+  configPlugins = require('@expo/config-plugins');
+} catch (e) {
+  try {
+    configPlugins = require('expo/config-plugins');
+  } catch (err) {
+    configPlugins = {};
+  }
+}
+const { withAndroidManifest, withAppBuildGradle, withProjectBuildGradle, withDangerousMod } = configPlugins || {};
 const fs = require('fs');
 const path = require('path');
 
