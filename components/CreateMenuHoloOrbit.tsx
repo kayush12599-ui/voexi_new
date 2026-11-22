@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import {
   View,
   StyleSheet,
@@ -10,8 +10,6 @@ import {
   Animated,
   Easing,
 } from 'react-native';
-import Svg, { Circle, Line } from 'react-native-svg';
-import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -21,9 +19,7 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 // --- CONFIGURATION ---
 const CORE_SIZE = 64;
 const ICON_SIZE = 54;
-const MAX_RADIUS = 145;
 const RINGS = [75, 110, 145];
-const ORBIT_COLORS = ['#A855F7', '#6366F1', '#00F2FE'];
 
 interface CreateMenuProps {
   visible: boolean;
@@ -31,7 +27,7 @@ interface CreateMenuProps {
   onSelect: (type: string) => void;
 }
 
-const MENU_ITEMS = [
+const RAW_MENU_ITEMS = [
   { id: 'photo', label: 'Photo', icon: 'camera-outline', orbit: 0, angle: -140, color: '#A855F7' },
   { id: 'reels', label: 'Reels', icon: 'play-circle-outline', orbit: 0, angle: -40, color: '#A855F7' },
   { id: 'sound', label: 'Sound', icon: 'musical-notes-outline', orbit: 1, angle: -160, color: '#6366F1' },
@@ -46,20 +42,34 @@ export default function CreateMenuHoloOrbit({ visible, onClose, onSelect }: Crea
   const [modalVisible, setModalVisible] = useState(visible);
   const openAnim = useRef(new Animated.Value(0)).current;
 
+  // Pre-calculate target coordinates once
+  const preparedItems = useMemo(() => {
+    return RAW_MENU_ITEMS.map(item => {
+      const radius = RINGS[item.orbit];
+      const rad = (item.angle * Math.PI) / 180;
+      return {
+        ...item,
+        targetX: radius * Math.cos(rad),
+        targetY: radius * Math.sin(rad),
+      };
+    });
+  }, []);
+
   useEffect(() => {
     if (visible) {
       setModalVisible(true);
-      Animated.spring(openAnim, {
+      Animated.timing(openAnim, {
         toValue: 1,
-        tension: 60,
-        friction: 8,
+        duration: 160,
+        easing: Easing.out(Easing.back(1.2)),
         useNativeDriver: true,
       }).start();
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {}); } catch (e) {}
     } else {
       Animated.timing(openAnim, {
         toValue: 0,
-        duration: 200,
+        duration: 120,
+        easing: Easing.in(Easing.ease),
         useNativeDriver: true,
       }).start(() => setModalVisible(false));
     }
@@ -74,7 +84,7 @@ export default function CreateMenuHoloOrbit({ visible, onClose, onSelect }: Crea
 
   const coreScale = openAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [0.8, 1],
+    outputRange: [0.7, 1],
   });
 
   return (
@@ -86,9 +96,9 @@ export default function CreateMenuHoloOrbit({ visible, onClose, onSelect }: Crea
       onRequestClose={onClose}
     >
       <View style={styles.modalRoot}>
-        {/* Full-screen dark blur background layer */}
+        {/* Full-screen GPU-friendly dark background layer */}
         <Animated.View style={[styles.fullScreenOverlay, { opacity: overlayOpacity }]}>
-          <BlurView intensity={45} tint="dark" style={StyleSheet.absoluteFill} />
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(5, 5, 12, 0.85)' }]} />
           <TouchableOpacity
             activeOpacity={1}
             style={styles.dismissArea}
@@ -99,20 +109,15 @@ export default function CreateMenuHoloOrbit({ visible, onClose, onSelect }: Crea
         <View style={styles.contentContainer} pointerEvents="box-none">
           {/* Orbit Items */}
           <View style={styles.centerPivot} pointerEvents="box-none">
-            {MENU_ITEMS.map((item) => {
-              const radius = RINGS[item.orbit];
-              const rad = (item.angle * Math.PI) / 180;
-              const targetX = radius * Math.cos(rad);
-              const targetY = radius * Math.sin(rad);
-
+            {preparedItems.map((item) => {
               const translateX = openAnim.interpolate({
                 inputRange: [0, 1],
-                outputRange: [0, targetX],
+                outputRange: [0, item.targetX],
               });
 
               const translateY = openAnim.interpolate({
                 inputRange: [0, 1],
-                outputRange: [0, targetY],
+                outputRange: [0, item.targetY],
               });
 
               const scale = openAnim.interpolate({
@@ -143,7 +148,7 @@ export default function CreateMenuHoloOrbit({ visible, onClose, onSelect }: Crea
                   <TouchableOpacity
                     activeOpacity={0.8}
                     onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                      try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (e) {}
                       onSelect(item.id);
                     }}
                     style={styles.orbitTouch}

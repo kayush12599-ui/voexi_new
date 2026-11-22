@@ -391,7 +391,6 @@ export default function VideoStudio() {
         category: newPostData.category,
         location: newPostData.location,
         moderation_status: newPostData.moderation_status,
-        ai_moderation_score: newPostData.ai_moderation_score,
         created_at: newPostData.created_at,
         views_count: newPostData.views_count,
         likes_count: newPostData.likes_count

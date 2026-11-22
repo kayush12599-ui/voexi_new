@@ -20,6 +20,7 @@ import { ModerationService } from '../../lib/moderationService';
 import { NeuralAuditModal } from '../../components/moderation/NeuralAuditModal';
 import { useTheme } from '../../hooks/useTheme';
 import SubscribeButton from '../../components/SubscribeButton';
+import { useResponsive } from '../../hooks/useResponsive';
 
 const { width } = Dimensions.get('window');
 
@@ -77,6 +78,7 @@ const CommentVideoPlayer = ({ mediaUrl }: { mediaUrl: string }) => {
 export default function VideoPlayerPage() {
   const { id, openComments } = useLocalSearchParams();
   const router = useRouter();
+  const { isDesktop } = useResponsive();
   const mainScrollRef = useRef<ScrollView>(null);
 
   const [video, setVideo] = useState<any>(null);
@@ -1335,6 +1337,55 @@ const styles = StyleSheet.create({
     color: '#666',
     fontSize: 10,
     marginTop: 2,
+  },
+  desktopMainContainer: {
+    maxWidth: 1400,
+    width: '100%',
+    alignSelf: 'center',
+    paddingTop: 60,
+  },
+  desktopTwoColumnRow: {
+    flexDirection: 'row',
+    gap: 24,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+  },
+  desktopLeftCol: {
+    flex: 7,
+    maxWidth: 960,
+  },
+  desktopRightCol: {
+    flex: 3,
+    minWidth: 320,
+  },
+  desktopVideoHero: {
+    width: '100%',
+    aspectRatio: 16/9,
+    backgroundColor: '#000',
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#1A1A24',
+    marginBottom: 15,
+  },
+  desktopRelCard: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+    backgroundColor: '#12121A',
+    borderRadius: 12,
+    overflow: 'hidden',
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#1A1A24',
+  },
+  desktopRelThumbWrapper: {
+    width: 140,
+    height: 85,
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#111',
+    position: 'relative',
   },
   loadingBox: { flex: 1, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
 

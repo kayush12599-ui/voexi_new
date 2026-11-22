@@ -369,7 +369,6 @@ export default function SignalStudio() {
         location: location,
         visibility: visibility || 'public',
         moderation_status: modStatus,
-        ai_moderation_score: modResult.score,
         created_at: new Date().toISOString()
       };
 

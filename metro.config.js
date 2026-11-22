@@ -10,6 +10,7 @@ config.resolver.assetExts = [...config.resolver.assetExts, 'glb', 'gltf', 'png',
 const stubPath = path.resolve(__dirname, 'mocks/native-stub.js');
 
 const nativeOnlyModules = new Set([
+  '@shopify/react-native-skia',
   'react-native-google-mobile-ads',
   'react-native-vision-camera',
   'react-native-deepar',

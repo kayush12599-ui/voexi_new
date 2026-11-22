@@ -98,6 +98,20 @@ export default function StoryViewerPage() {
   const hintsOpacity = useRef(new Animated.Value(0)).current;
 
   const activeStory = stories[activeIndex];
+  const mediaUrl = activeStory?.media_url || activeStory?.video_url || '';
+  const pt = (activeStory?.post_type || activeStory?.media_type || '').toLowerCase();
+  const isVideoStory = Boolean(
+    pt === 'video' ||
+    pt === 'reels' ||
+    pt === 'reel' ||
+    activeStory?.media_type === 'video' ||
+    activeStory?.post_type === 'Video' ||
+    Boolean(activeStory?.video_url) ||
+    mediaUrl.toLowerCase().includes('.mp4') ||
+    mediaUrl.toLowerCase().includes('.mov') ||
+    mediaUrl.toLowerCase().includes('.m3u8') ||
+    mediaUrl.toLowerCase().includes('b-cdn')
+  );
   const { isFollowing, toggleFollow } = useFollow(currentUserId, activeStory?.user_id);
 
   const fetchStories = useCallback(async () => {
@@ -630,16 +644,6 @@ export default function StoryViewerPage() {
       </View>
     );
   }
-
-  const mediaUrl = activeStory?.media_url || '';
-  const isVideoStory = Boolean(
-    activeStory?.media_type === 'video' ||
-    activeStory?.post_type === 'Video' ||
-    mediaUrl.toLowerCase().includes('.mp4') ||
-    mediaUrl.toLowerCase().includes('.mov') ||
-    mediaUrl.toLowerCase().includes('.m3u8') ||
-    mediaUrl.toLowerCase().includes('b-cdn')
-  );
 
   return (
     <View style={styles.container}>

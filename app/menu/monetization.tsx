@@ -23,6 +23,69 @@ const THEME = {
   danger: '#FF4444'
 };
 
+const PILLAR_DETAILS: Record<string, any> = {
+  ad_share: {
+    id: 'ad_share',
+    title: 'Ad Revenue Share & In-Feed Ads',
+    subtitle: 'Short Video Views & In-Feed Ad Placements',
+    icon: 'megaphone-outline',
+    color: '#00F2FE',
+    overview: 'Earn passive revenue from your short video reels through Google AdMob impressions and verified view rewards.',
+    steps: [
+      '1. Upload 9:16 reels or 16:9 videos in Studio.',
+      '2. Google Mobile Ads are embedded automatically every 5th reel in the global feed.',
+      '3. Verified views & ad clicks generate real-time revenue credited to your wallet balance.'
+    ],
+    earningRate: '₹50 per 1,000 Verified Views + Ad Click Share',
+    payoutInfo: 'Instant withdrawal to PhonePe, Paytm, or Bank Account upon reaching ₹100 minimum.'
+  },
+  live_gifts: {
+    id: 'live_gifts',
+    title: 'Live Super Chat & Virtual Gifts',
+    subtitle: 'Real-Time Broadcast Gifts & Super Chat Tips',
+    icon: 'gift',
+    color: '#FF0055',
+    overview: 'Receive instant virtual gifts, rockets, crowns, and pinned Super Chats from viewers during live streams and cluster chats.',
+    steps: [
+      '1. Go Live using Studio Live Setup or start a Cluster Group Chat.',
+      '2. Viewers tap the Gift icon to send Roses, Diamonds, Rockets, or Super Chats.',
+      '3. Gift VX Coins convert 100% directly to withdrawable cash in your wallet.'
+    ],
+    earningRate: '100% Gift Conversion Rate (1 Coin = ₹1)',
+    payoutInfo: 'Real-time balance credit available for instant cashout.'
+  },
+  paid_videos: {
+    id: 'paid_videos',
+    title: 'Paid Videos & Exclusive Content',
+    subtitle: 'Pay-Per-View Content & Premium Releases',
+    icon: 'film-outline',
+    color: '#FFD700',
+    overview: 'Lock premium video releases behind a custom pay-per-view unlock fee for exclusive content monetization.',
+    steps: [
+      '1. Upload exclusive videos in Studio and set a custom price tag (e.g. ₹10, ₹50, ₹100).',
+      '2. Non-paid viewers see a 5-second teaser preview.',
+      '3. Viewers tap "Unlock Video" to pay instantly, granting full permanent playback access.'
+    ],
+    earningRate: '100% Content Sales Revenue Credited directly to Creator Wallet',
+    payoutInfo: 'Instant payout added to your withdrawable balance.'
+  },
+  memberships: {
+    id: 'memberships',
+    title: 'Channel Memberships & VIP Clusters',
+    subtitle: 'Cluster Paid Channels & Recurring Subscriptions',
+    icon: 'ribbon-outline',
+    color: '#A855F7',
+    overview: 'Build recurring monthly income by creating VIP Cluster Channels with paid monthly tier access for loyal fans.',
+    steps: [
+      '1. Create a VIP Cluster Channel in the Clusters Tab.',
+      '2. Fans subscribe to monthly membership tiers for exclusive chat, badges, and streams.',
+      '3. Recurring monthly subscription revenue is credited automatically every month.'
+    ],
+    earningRate: '₹50 per Active Member Monthly Subscription',
+    payoutInfo: 'Monthly automated recurring creator payouts.'
+  }
+};
+
 export default function MonetizationScreen() {
   const router = useRouter();
   const { theme: themeMode, isLight } = useTheme();
@@ -71,11 +134,25 @@ export default function MonetizationScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   };
 
+  // Pillar Details Modal State
+  const [selectedPillarDetail, setSelectedPillarDetail] = useState<{
+    id: string;
+    title: string;
+    subtitle: string;
+    icon: string;
+    color: string;
+    overview: string;
+    steps: string[];
+    earningRate: string;
+    payoutInfo: string;
+  } | null>(null);
+
   // Real Earnings & Wallet State
   const [totalEarnings, setTotalEarnings] = useState(0);
   const [vxCoins, setVxCoins] = useState(0);
   const [giftRevenue, setGiftRevenue] = useState(0);
   const [adRevenue, setAdRevenue] = useState(0);
+  const [paidVideoRevenue, setPaidVideoRevenue] = useState(0);
   const [clusterRevenue, setClusterRevenue] = useState(0);
   const [payoutHistory, setPayoutHistory] = useState<any[]>([]);
 
@@ -174,7 +251,27 @@ export default function MonetizationScreen() {
         }
         setGiftRevenue(realGiftsSum);
 
-        // 5. Real Cluster Members Revenue
+        // 5. Real Ad Revenue from Views (₹50 per 1,000 views)
+        const calculatedAdRev = Math.floor((realViewsSum / 1000) * 50);
+        setAdRevenue(calculatedAdRev);
+
+        // 6. Real Paid Videos & PPV Revenue
+        let realPaidSum = 0;
+        try {
+          const { data: paidPosts } = await supabase
+            .from('posts')
+            .select('price, views_count')
+            .eq('user_id', u.id)
+            .gt('price', 0);
+          if (paidPosts) {
+            paidPosts.forEach(pp => {
+              realPaidSum += (parseFloat(pp.price) || 0) * (parseInt(pp.views_count) || 1);
+            });
+          }
+        } catch (e) {}
+        setPaidVideoRevenue(realPaidSum);
+
+        // 7. Real Cluster Members Revenue (₹50/member)
         const { data: myGroups } = await supabase.from('groups').select('id').eq('created_by', u.id);
         let realClusterSum = 0;
         if (myGroups && myGroups.length > 0) {
@@ -183,26 +280,25 @@ export default function MonetizationScreen() {
             .from('group_members')
             .select('id', { count: 'exact', head: true })
             .in('group_id', groupIds);
-          realClusterSum = (memCount || 0) * 50; // ₹50 per cluster member
+          realClusterSum = (memCount || 0) * 50;
         }
         setClusterRevenue(realClusterSum);
 
-        // 6. Real Total Balance Calculations
-        let dbEarnings = 0;
-        if (prof?.total_earnings !== null && prof?.total_earnings !== undefined && !isNaN(prof.total_earnings) && prof.total_earnings !== 2450) {
+        // 8. Grand Total Balance Calculation across all 4 Pillars
+        const grandTotalCalculated = calculatedAdRev + realGiftsSum + realPaidSum + realClusterSum;
+        let dbEarnings = grandTotalCalculated;
+        if (prof?.total_earnings !== null && prof?.total_earnings !== undefined && !isNaN(prof.total_earnings) && prof.total_earnings > grandTotalCalculated) {
           dbEarnings = parseFloat(prof.total_earnings);
-        } else {
-          dbEarnings = realGiftsSum + realClusterSum;
         }
 
-        const dbCoins = (prof?.vx_coins !== null && prof?.vx_coins !== undefined && !isNaN(prof.vx_coins) && prof.vx_coins !== 2450)
+        const dbCoins = (prof?.vx_coins !== null && prof?.vx_coins !== undefined && !isNaN(prof.vx_coins))
           ? parseInt(prof.vx_coins, 10)
           : dbEarnings;
 
         setTotalEarnings(dbEarnings);
         setVxCoins(dbCoins);
 
-        // 7. Fetch Real Payout Requests History
+        // 9. Fetch Real Payout Requests History
         const { data: payouts } = await supabase
           .from('payout_requests')
           .select('*')
@@ -229,9 +325,9 @@ export default function MonetizationScreen() {
     );
   };
 
-  // STEP 1: Verify OTP
+  // STEP 1: Verify OTP (REAL GMAIL OTP ONLY)
   const handleVerifyOtp = () => {
-    if (enteredOtp.trim() === generatedOtp || enteredOtp.trim() === '123456') {
+    if (generatedOtp && enteredOtp.trim() === generatedOtp) {
       setIsOtpVerified(true);
       setApplicationStep(2);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -534,25 +630,77 @@ export default function MonetizationScreen() {
               </TouchableOpacity>
             </LinearGradient>
 
-            {/* MONETIZATION BENEFITS HIGHLIGHTS */}
+            {/* 4 REVENUE STREAMS BREAKDOWN (TAP FOR FULL DETAILS) */}
             <View style={styles.section}>
-              <Text style={[styles.sectionLabel, isLight && { color: '#888' }]}>MONETIZATION BENEFITS</Text>
-              <View style={{ gap: 10 }}>
-                {[
-                  { title: '🎁 Live Virtual Gifts', desc: 'Receive gifts in Cluster Chat & Streams and cashout to UPI.', icon: 'gift' },
-                  { title: '📽️ Short Video View Revenue', desc: 'Earn ₹50 per 1,000 verified video views.', icon: 'videocam' },
-                  { title: '💸 Instant UPI Cashouts', desc: 'Withdraw earnings to PhonePe, Paytm, or Bank in 24 hours.', icon: 'cash' },
-                ].map((b, idx) => (
-                  <View key={idx} style={[styles.streamCard, isLight && { backgroundColor: '#F9F9F9', borderColor: '#EEE' }]}>
-                    <View style={[styles.streamIconBox, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
-                      <Ionicons name={b.icon as any} size={20} color={THEME.accent} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.streamTitle, isLight && { color: '#000' }]}>{b.title}</Text>
-                      <Text style={styles.streamSub}>{b.desc}</Text>
-                    </View>
+              <Text style={[styles.sectionLabel, isLight && { color: '#888' }]}>4 REVENUE STREAMS BREAKDOWN (TAP FOR FULL DETAILS)</Text>
+              <View style={styles.streamsGrid}>
+                <TouchableOpacity
+                  style={[styles.streamCard, isLight && { backgroundColor: '#F9F9F9', borderColor: '#EEE' }]}
+                  onPress={() => {
+                    setSelectedPillarDetail(PILLAR_DETAILS.ad_share);
+                    if (Haptics) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.streamIconBox, { backgroundColor: 'rgba(0, 242, 254, 0.15)' }]}>
+                    <Ionicons name="megaphone-outline" size={20} color="#00F2FE" />
                   </View>
-                ))}
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.streamTitle, isLight && { color: '#000' }]}>Ad Revenue Share</Text>
+                    <Text style={styles.streamSub}>Short Video Views & In-Feed Ads ➔</Text>
+                  </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.streamCard, isLight && { backgroundColor: '#F9F9F9', borderColor: '#EEE' }]}
+                  onPress={() => {
+                    setSelectedPillarDetail(PILLAR_DETAILS.live_gifts);
+                    if (Haptics) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.streamIconBox, { backgroundColor: 'rgba(255, 0, 85, 0.15)' }]}>
+                    <Ionicons name="gift" size={20} color="#FF0055" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.streamTitle, isLight && { color: '#000' }]}>Live Super Chat & Gifts</Text>
+                    <Text style={styles.streamSub}>Chat & Stream Gifts ➔</Text>
+                  </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.streamCard, isLight && { backgroundColor: '#F9F9F9', borderColor: '#EEE' }]}
+                  onPress={() => {
+                    setSelectedPillarDetail(PILLAR_DETAILS.paid_videos);
+                    if (Haptics) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.streamIconBox, { backgroundColor: 'rgba(255, 215, 0, 0.15)' }]}>
+                    <Ionicons name="film-outline" size={20} color="#FFD700" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.streamTitle, isLight && { color: '#000' }]}>Paid Videos & Exclusive</Text>
+                    <Text style={styles.streamSub}>Pay-Per-View Content ➔</Text>
+                  </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.streamCard, isLight && { backgroundColor: '#F9F9F9', borderColor: '#EEE' }]}
+                  onPress={() => {
+                    setSelectedPillarDetail(PILLAR_DETAILS.memberships);
+                    if (Haptics) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.streamIconBox, { backgroundColor: 'rgba(168, 85, 247, 0.15)' }]}>
+                    <Ionicons name="ribbon-outline" size={20} color="#A855F7" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.streamTitle, isLight && { color: '#000' }]}>Channel Memberships</Text>
+                    <Text style={styles.streamSub}>Cluster Paid Channels & VIP Tiers ➔</Text>
+                  </View>
+                </TouchableOpacity>
               </View>
             </View>
           </View>
@@ -653,45 +801,81 @@ export default function MonetizationScreen() {
               </TouchableOpacity>
             </LinearGradient>
 
-            {/* REVENUE STREAMS BREAKDOWN */}
+            {/* REVENUE STREAMS BREAKDOWN (4 MONETIZATION PILLARS) */}
             <View style={styles.section}>
-              <Text style={[styles.sectionLabel, isLight && { color: '#888' }]}>REVENUE STREAMS BREAKDOWN</Text>
+              <Text style={[styles.sectionLabel, isLight && { color: '#888' }]}>4 REVENUE STREAMS BREAKDOWN (TAP FOR FULL DETAILS)</Text>
               <View style={styles.streamsGrid}>
-                {/* GIFT REVENUE */}
-                <View style={[styles.streamCard, isLight && { backgroundColor: '#F9F9F9', borderColor: '#EEE' }]}>
-                  <View style={[styles.streamIconBox, { backgroundColor: 'rgba(255, 77, 109, 0.15)' }]}>
-                    <Ionicons name="gift" size={20} color="#ff4d6d" />
+                {/* 1. AD REVENUE SHARE */}
+                <TouchableOpacity
+                  style={[styles.streamCard, isLight && { backgroundColor: '#F9F9F9', borderColor: '#EEE' }]}
+                  onPress={() => {
+                    setSelectedPillarDetail(PILLAR_DETAILS.ad_share);
+                    if (Haptics) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.streamIconBox, { backgroundColor: 'rgba(0, 242, 254, 0.15)' }]}>
+                    <Ionicons name="megaphone-outline" size={20} color="#00F2FE" />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.streamTitle, isLight && { color: '#000' }]}>Virtual Gifts</Text>
-                    <Text style={styles.streamSub}>Chat & Stream Gifts</Text>
+                    <Text style={[styles.streamTitle, isLight && { color: '#000' }]}>Ad Revenue Share</Text>
+                    <Text style={styles.streamSub}>Short Video Views & In-Feed Ads ➔</Text>
                   </View>
-                  <Text style={styles.streamAmount}>₹{giftRevenue}</Text>
-                </View>
+                </TouchableOpacity>
 
-                {/* AD REVENUE */}
-                <View style={[styles.streamCard, isLight && { backgroundColor: '#F9F9F9', borderColor: '#EEE' }]}>
-                  <View style={[styles.streamIconBox, { backgroundColor: 'rgba(0, 212, 255, 0.15)' }]}>
-                    <Ionicons name="videocam" size={20} color={THEME.secondary} />
+                {/* 2. LIVE SUPER CHAT & VIRTUAL GIFTS */}
+                <TouchableOpacity
+                  style={[styles.streamCard, isLight && { backgroundColor: '#F9F9F9', borderColor: '#EEE' }]}
+                  onPress={() => {
+                    setSelectedPillarDetail(PILLAR_DETAILS.live_gifts);
+                    if (Haptics) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.streamIconBox, { backgroundColor: 'rgba(255, 0, 85, 0.15)' }]}>
+                    <Ionicons name="gift" size={20} color="#FF0055" />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.streamTitle, isLight && { color: '#000' }]}>Short Video Views</Text>
-                    <Text style={styles.streamSub}>Ad Revenue Share</Text>
+                    <Text style={[styles.streamTitle, isLight && { color: '#000' }]}>Live Super Chat & Gifts</Text>
+                    <Text style={styles.streamSub}>Chat & Stream Gifts ➔</Text>
                   </View>
-                  <Text style={styles.streamAmount}>₹{adRevenue}</Text>
-                </View>
+                </TouchableOpacity>
 
-                {/* CLUSTER REVENUE */}
-                <View style={[styles.streamCard, isLight && { backgroundColor: '#F9F9F9', borderColor: '#EEE' }]}>
-                  <View style={[styles.streamIconBox, { backgroundColor: 'rgba(124, 92, 255, 0.15)' }]}>
-                    <Ionicons name="people" size={20} color={THEME.purple} />
+                {/* 3. PAID VIDEOS & EXCLUSIVE CONTENT */}
+                <TouchableOpacity
+                  style={[styles.streamCard, isLight && { backgroundColor: '#F9F9F9', borderColor: '#EEE' }]}
+                  onPress={() => {
+                    setSelectedPillarDetail(PILLAR_DETAILS.paid_videos);
+                    if (Haptics) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.streamIconBox, { backgroundColor: 'rgba(255, 215, 0, 0.15)' }]}>
+                    <Ionicons name="film-outline" size={20} color="#FFD700" />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.streamTitle, isLight && { color: '#000' }]}>Cluster Subscriptions</Text>
-                    <Text style={styles.streamSub}>Paid Channels & Tiers</Text>
+                    <Text style={[styles.streamTitle, isLight && { color: '#000' }]}>Paid Videos & Exclusive</Text>
+                    <Text style={styles.streamSub}>Pay-Per-View Content ➔</Text>
                   </View>
-                  <Text style={styles.streamAmount}>₹{clusterRevenue}</Text>
-                </View>
+                </TouchableOpacity>
+
+                {/* 4. CHANNEL MEMBERSHIPS & CLUSTER SUBSCRIPTIONS */}
+                <TouchableOpacity
+                  style={[styles.streamCard, isLight && { backgroundColor: '#F9F9F9', borderColor: '#EEE' }]}
+                  onPress={() => {
+                    setSelectedPillarDetail(PILLAR_DETAILS.memberships);
+                    if (Haptics) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.streamIconBox, { backgroundColor: 'rgba(168, 85, 247, 0.15)' }]}>
+                    <Ionicons name="ribbon-outline" size={20} color="#A855F7" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.streamTitle, isLight && { color: '#000' }]}>Channel Memberships</Text>
+                    <Text style={styles.streamSub}>Cluster Paid Channels & VIP Tiers ➔</Text>
+                  </View>
+                </TouchableOpacity>
               </View>
             </View>
 
@@ -703,9 +887,6 @@ export default function MonetizationScreen() {
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                     <MaterialCommunityIcons name="calculator-variant" size={24} color={THEME.accent} />
                     <Text style={[styles.streamTitle, { fontSize: 14, fontWeight: 'bold' }]}>ESTIMATED REVENUE CALCULATOR</Text>
-                  </View>
-                  <View style={{ backgroundColor: 'rgba(16, 185, 129, 0.2)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 }}>
-                    <Text style={{ color: THEME.accent, fontSize: 10, fontWeight: 'bold' }}>₹0.01 / VIEW</Text>
                   </View>
                 </View>
 
@@ -857,25 +1038,77 @@ export default function MonetizationScreen() {
               </TouchableOpacity>
             </LinearGradient>
 
-            {/* MONETIZATION BENEFITS HIGHLIGHTS */}
+            {/* 4 REVENUE STREAMS BREAKDOWN (TAP FOR FULL DETAILS) */}
             <View style={styles.section}>
-              <Text style={[styles.sectionLabel, isLight && { color: '#888' }]}>MONETIZATION BENEFITS</Text>
-              <View style={{ gap: 10 }}>
-                {[
-                  { title: '🎁 Live Virtual Gifts', desc: 'Receive gifts in Cluster Chat & Streams and cashout to UPI.', icon: 'gift' },
-                  { title: '📽️ Short Video View Revenue', desc: 'Earn ₹50 per 1,000 verified video views.', icon: 'videocam' },
-                  { title: '💸 Instant UPI Cashouts', desc: 'Withdraw earnings to PhonePe, Paytm, or Bank in 24 hours.', icon: 'cash' },
-                ].map((b, idx) => (
-                  <View key={idx} style={[styles.streamCard, isLight && { backgroundColor: '#F9F9F9', borderColor: '#EEE' }]}>
-                    <View style={[styles.streamIconBox, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
-                      <Ionicons name={b.icon as any} size={20} color={THEME.accent} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.streamTitle, isLight && { color: '#000' }]}>{b.title}</Text>
-                      <Text style={styles.streamSub}>{b.desc}</Text>
-                    </View>
+              <Text style={[styles.sectionLabel, isLight && { color: '#888' }]}>4 REVENUE STREAMS BREAKDOWN (TAP FOR FULL DETAILS)</Text>
+              <View style={styles.streamsGrid}>
+                <TouchableOpacity
+                  style={[styles.streamCard, isLight && { backgroundColor: '#F9F9F9', borderColor: '#EEE' }]}
+                  onPress={() => {
+                    setSelectedPillarDetail(PILLAR_DETAILS.ad_share);
+                    if (Haptics) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.streamIconBox, { backgroundColor: 'rgba(0, 242, 254, 0.15)' }]}>
+                    <Ionicons name="megaphone-outline" size={20} color="#00F2FE" />
                   </View>
-                ))}
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.streamTitle, isLight && { color: '#000' }]}>Ad Revenue Share</Text>
+                    <Text style={styles.streamSub}>Short Video Views & In-Feed Ads ➔</Text>
+                  </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.streamCard, isLight && { backgroundColor: '#F9F9F9', borderColor: '#EEE' }]}
+                  onPress={() => {
+                    setSelectedPillarDetail(PILLAR_DETAILS.live_gifts);
+                    if (Haptics) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.streamIconBox, { backgroundColor: 'rgba(255, 0, 85, 0.15)' }]}>
+                    <Ionicons name="gift" size={20} color="#FF0055" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.streamTitle, isLight && { color: '#000' }]}>Live Super Chat & Gifts</Text>
+                    <Text style={styles.streamSub}>Chat & Stream Gifts ➔</Text>
+                  </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.streamCard, isLight && { backgroundColor: '#F9F9F9', borderColor: '#EEE' }]}
+                  onPress={() => {
+                    setSelectedPillarDetail(PILLAR_DETAILS.paid_videos);
+                    if (Haptics) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.streamIconBox, { backgroundColor: 'rgba(255, 215, 0, 0.15)' }]}>
+                    <Ionicons name="film-outline" size={20} color="#FFD700" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.streamTitle, isLight && { color: '#000' }]}>Paid Videos & Exclusive</Text>
+                    <Text style={styles.streamSub}>Pay-Per-View Content ➔</Text>
+                  </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.streamCard, isLight && { backgroundColor: '#F9F9F9', borderColor: '#EEE' }]}
+                  onPress={() => {
+                    setSelectedPillarDetail(PILLAR_DETAILS.memberships);
+                    if (Haptics) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.streamIconBox, { backgroundColor: 'rgba(168, 85, 247, 0.15)' }]}>
+                    <Ionicons name="ribbon-outline" size={20} color="#A855F7" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.streamTitle, isLight && { color: '#000' }]}>Channel Memberships</Text>
+                    <Text style={styles.streamSub}>Cluster Paid Channels & VIP Tiers ➔</Text>
+                  </View>
+                </TouchableOpacity>
               </View>
             </View>
           </View>
@@ -1283,6 +1516,72 @@ export default function MonetizationScreen() {
             <TouchableOpacity onPress={() => setPinModalVisible(false)} style={styles.closeBtn}>
               <Text style={styles.closeText}>CANCEL</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 4 REVENUE PILLARS FULL DETAILS MODAL */}
+      <Modal visible={Boolean(selectedPillarDetail)} transparent animationType="slide" onRequestClose={() => setSelectedPillarDetail(null)}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={{ flex: 1 }} onPress={() => setSelectedPillarDetail(null)} />
+          <View style={[styles.dobPickerSheet, { maxHeight: '85%' }]}>
+            <View style={styles.dragBar} />
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
+              {selectedPillarDetail && (
+                <View style={{ gap: 16 }}>
+                  {/* HEADER */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                    <View style={[styles.streamIconBox, { width: 44, height: 44, borderRadius: 22, backgroundColor: selectedPillarDetail.color + '20' }]}>
+                      <Ionicons name={selectedPillarDetail.icon as any} size={22} color={selectedPillarDetail.color} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.sheetTitle, { textAlign: 'left', fontSize: 15 }]}>{selectedPillarDetail.title}</Text>
+                      <Text style={{ color: selectedPillarDetail.color, fontSize: 11, fontWeight: '800', marginTop: 2 }}>{selectedPillarDetail.subtitle}</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => setSelectedPillarDetail(null)} style={{ padding: 6 }}>
+                      <Ionicons name="close-circle" size={24} color="#666" />
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* OVERVIEW */}
+                  <View style={{ backgroundColor: 'rgba(255,255,255,0.03)', padding: 14, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' }}>
+                    <Text style={{ color: '#8E8E93', fontSize: 10, fontWeight: '900', letterSpacing: 1, marginBottom: 6 }}>OVERVIEW</Text>
+                    <Text style={{ color: '#FFF', fontSize: 13, lineHeight: 18, fontWeight: '500' }}>{selectedPillarDetail.overview}</Text>
+                  </View>
+
+                  {/* STEPS */}
+                  <View style={{ backgroundColor: 'rgba(255,255,255,0.03)', padding: 14, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' }}>
+                    <Text style={{ color: '#8E8E93', fontSize: 10, fontWeight: '900', letterSpacing: 1, marginBottom: 10 }}>HOW IT WORKS & EXECUTION STEPS</Text>
+                    <View style={{ gap: 8 }}>
+                      {selectedPillarDetail.steps.map((s: string, idx: number) => (
+                        <View key={idx} style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start' }}>
+                          <Ionicons name="checkmark-circle" size={16} color={selectedPillarDetail.color} style={{ marginTop: 2 }} />
+                          <Text style={{ color: '#DDD', fontSize: 12, lineHeight: 17, flex: 1, fontWeight: '600' }}>{s}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+
+                  {/* EARNING RATE & PAYOUT INFO */}
+                  <View style={{ backgroundColor: 'rgba(16, 185, 129, 0.08)', padding: 14, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(16, 185, 129, 0.3)', gap: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Ionicons name="cash" size={18} color="#10B981" />
+                      <Text style={{ color: '#10B981', fontSize: 12, fontWeight: '900' }}>EARNING RATE & PAYOUT</Text>
+                    </View>
+                    <Text style={{ color: '#FFF', fontSize: 12, fontWeight: 'bold' }}>• Rate: {selectedPillarDetail.earningRate}</Text>
+                    <Text style={{ color: '#AAA', fontSize: 11 }}>• Payout: {selectedPillarDetail.payoutInfo}</Text>
+                  </View>
+
+                  {/* CLOSE BUTTON */}
+                  <TouchableOpacity style={styles.confirmWithdrawBtn} onPress={() => setSelectedPillarDetail(null)}>
+                    <LinearGradient colors={['#10B981', '#059669']} style={styles.withdrawGradient}>
+                      <Ionicons name="checkmark-done-circle" size={18} color="#fff" />
+                      <Text style={styles.withdrawBtnText}>UNDERSTOOD & CLOSE DETAILS</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </ScrollView>
           </View>
         </View>
       </Modal>

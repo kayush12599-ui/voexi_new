@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { StyleSheet, View, Text, TextInput, FlatList, Image, TouchableOpacity, ActivityIndicator, Dimensions, ScrollView } from 'react-native';
+import { StyleSheet, View, Text, TextInput, FlatList, Image, TouchableOpacity, ActivityIndicator, Dimensions, ScrollView, Platform } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -15,14 +15,13 @@ export default function DirectChatScreen() {
   const { theme: themeMode, isLight } = useTheme();
   const [friends, setFriends] = useState<any[]>([]);
   const [joinedClusters, setJoinedClusters] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [hasPendingRequest, setHasPendingRequest] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'all' | 'direct' | 'clusters'>('all');
 
   const fetchFriendsAndMessages = async () => {
-    setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
     setCurrentUser(user);
     if (user) {
@@ -151,7 +150,7 @@ export default function DirectChatScreen() {
         </TouchableOpacity>
         <Text style={[styles.headerTitle, isLight && { color: '#000' }]}>DIRECT MESSAGES</Text>
 
-        <TouchableOpacity onPress={() => router.push('/menu/friends')} style={[styles.addBtn, isLight && { backgroundColor: '#F5F5F5', borderColor: '#EEE' }]}>
+        <TouchableOpacity onPress={() => router.push('/menu/people')} style={[styles.addBtn, isLight && { backgroundColor: '#F5F5F5', borderColor: '#EEE' }]}>
           <Ionicons name="person-add-outline" size={20} color={isLight ? '#000' : '#fff'} />
           {hasPendingRequest && <View style={styles.dot} />}
         </TouchableOpacity>
@@ -241,9 +240,14 @@ export default function DirectChatScreen() {
           data={filteredDisplayList}
           keyExtractor={(item) => item.id}
           showsVerticalScrollIndicator={false}
+          removeClippedSubviews={Platform.OS === 'android'}
+          maxToRenderPerBatch={10}
+          windowSize={5}
+          initialNumToRender={10}
+          updateCellsBatchingPeriod={50}
           renderItem={({ item }) => {
             const isGroup = item.isGroup;
-            const title = item.name || item.channel_name || item.username || 'VOEXI Agent';
+            const title = item.name || item.channel_name || item.username || 'VOEXI User';
             const avatarUri = item.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(title)}&background=7C5CFF&color=fff&bold=true`;
             const lastMsgText = item.lastMessage ? (item.lastMessage.type === 'image' ? '📸 Attachment' : item.lastMessage.type === 'voice' ? '🎙️ Voice Signal' : item.lastMessage.content) : 'No transmissions yet';
             const time = item.lastMessage ? new Date(item.lastMessage.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';

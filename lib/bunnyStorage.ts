@@ -9,9 +9,10 @@ export const getLocalMediaServerUrl = (): string => {
   if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.hostname) {
     const host = window.location.hostname;
     const protocol = window.location.protocol || 'http:';
-    if (host !== 'localhost' && host !== '127.0.0.1' && !host.startsWith('192.168.')) {
-      return `${protocol}//${host}`;
+    if (host === 'localhost' || host === '127.0.0.1' || host.startsWith('192.168.')) {
+      return `${protocol}//${host}:${LOCAL_MEDIA_SERVER_PORT}`;
     }
+    return `${protocol}//${host}`;
   }
   return `http://${LOCAL_MEDIA_SERVER_IP}:${LOCAL_MEDIA_SERVER_PORT}`;
 };

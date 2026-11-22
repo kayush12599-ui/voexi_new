@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Dimensions, Animated, Easing, Platform } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Dimensions, Animated, Easing, Platform, ActivityIndicator, Linking } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -7,20 +7,52 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../hooks/useTheme';
 import { VoexiIcon } from '../../components/VoexiIcon';
 import Constants from 'expo-constants';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
+import { supabase } from '../../lib/supabase';
+import { MEDIA_SERVER_URL } from '../../constants/config';
 
 const { width } = Dimensions.get('window');
+const LOCAL_SERVER_URL = MEDIA_SERVER_URL;
+
+export interface AboutConfig {
+  headerLabel: string;
+  appName: string;
+  statusBadge: string;
+  aboutTitle: string;
+  aboutDesc: string;
+  version: string;
+  status: string;
+  developer: string;
+  origin: string;
+  footerThankYou: string;
+  copyright: string;
+}
+
+export const DEFAULT_ABOUT_CONFIG: AboutConfig = {
+  headerLabel: 'ELITE CORE LOG',
+  appName: 'VOEXI',
+  statusBadge: 'PRIVATE BETA • NEURAL LINK ACTIVE',
+  aboutTitle: 'ABOUT VOEXI',
+  aboutDesc: "VOEXI is a next-generation AI-powered social platform designed for creators, communities, and meaningful digital experiences. Built with innovation, privacy, and performance at its core, VOEXI offers a fresh social experience focused on creativity, intelligent features, and authentic connections.",
+  version: '1.0.0',
+  status: 'COMING SOON',
+  developer: 'VOEXI TEAM',
+  origin: 'CORE PROTOCOL',
+  footerThankYou: "Thank you for being part of VOEXI. Together we're building the future of social connection.",
+  copyright: `© ${new Date().getFullYear()} VOEXI. ALL RIGHTS RESERVED.`
+};
 
 /**
  * VOEXI ULTRA-PREMIUM "ABOUT" TERMINAL
- * Designed for pure originality, luxury, and futuristic AI identity.
- * Strictly 0% imitation of existing social media apps.
+ * Dynamic Server Sync (Web Admin Config) + Instant Local Cache
  */
 export default function AboutVoexiScreen() {
   const router = useRouter();
   const { isLight } = useTheme();
 
-  const appVersion = Constants.expoConfig?.version || '1.0.0';
-  const currentYear = new Date().getFullYear();
+  const [config, setConfig] = useState<AboutConfig>(DEFAULT_ABOUT_CONFIG);
+  const [loading, setLoading] = useState<boolean>(false);
 
   // Animation Engines
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -42,21 +74,88 @@ export default function AboutVoexiScreen() {
         ])
       )
     ]).start();
+
+    loadConfig();
   }, []);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      loadConfig();
+    }, [])
+  );
+
+  const getVal = (val1: any, val2: any, fallback: string) => {
+    if (val1 !== undefined && val1 !== null && String(val1).trim() !== '') return String(val1);
+    if (val2 !== undefined && val2 !== null && String(val2).trim() !== '') return String(val2);
+    return fallback;
+  };
+
+  const loadConfig = async () => {
+    // 1. FAST LOCAL CACHE RESTORE (0ms Network Lag)
+    try {
+      const localStr = await AsyncStorage.getItem('@cached_voexi_about_config');
+      if (localStr) {
+        const parsed = JSON.parse(localStr);
+        if (parsed && typeof parsed === 'object') {
+          setConfig(prev => ({ ...prev, ...parsed }));
+        }
+      }
+    } catch (e) {}
+
+    // 2. FAST LOCAL SERVER 2 SYNC WITH 1200MS TIMEOUT SHIELD
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 1200);
+      const res = await fetch(`${LOCAL_SERVER_URL}/app-info.json`, { signal: controller.signal }).catch(() => null);
+      clearTimeout(timer);
+
+      if (res && res.ok) {
+        const s2Data = await res.json();
+        const bData = s2Data?.layer1_branding || s2Data || {};
+        if (bData && typeof bData === 'object') {
+          const merged = {
+            headerLabel: getVal(bData.header_label, bData.headerLabel, DEFAULT_ABOUT_CONFIG.headerLabel),
+            appName: getVal(bData.app_name, bData.appName, DEFAULT_ABOUT_CONFIG.appName),
+            statusBadge: getVal(bData.status_badge, bData.statusBadge, DEFAULT_ABOUT_CONFIG.statusBadge),
+            aboutTitle: getVal(bData.about_title, bData.aboutTitle, DEFAULT_ABOUT_CONFIG.aboutTitle),
+            aboutDesc: getVal(bData.about_desc, bData.aboutDesc, DEFAULT_ABOUT_CONFIG.aboutDesc),
+            version: getVal(bData.version, bData.version, DEFAULT_ABOUT_CONFIG.version),
+            status: getVal(bData.status, bData.status, DEFAULT_ABOUT_CONFIG.status),
+            developer: getVal(bData.developer, bData.developer, DEFAULT_ABOUT_CONFIG.developer),
+            origin: getVal(bData.origin, bData.origin, DEFAULT_ABOUT_CONFIG.origin),
+            footerThankYou: getVal(bData.footer_thankyou, bData.footerThankYou, DEFAULT_ABOUT_CONFIG.footerThankYou),
+            copyright: getVal(bData.copyright, bData.copyright, DEFAULT_ABOUT_CONFIG.copyright),
+          };
+          setConfig(merged);
+          await AsyncStorage.setItem('@cached_voexi_about_config', JSON.stringify(merged));
+        }
+      }
+    } catch (e) {
+      console.log("[ABOUT] Server sync optional fallback active.");
+    }
+  };
 
   const orbitRotation = orbitAnim.interpolate({
     inputRange: [0, 1],
     outputRange: ['0deg', '360deg']
   });
 
-  const ProtocolButton = ({ title, url, icon }: any) => (
+  const ProtocolButton = ({ title, url, route, icon }: any) => (
     <TouchableOpacity
       style={styles.protocolBtn}
       activeOpacity={0.7}
-      onPress={() => router.push({
-        pathname: '/menu/web-portal',
-        params: { url, title }
-      })}
+      onPress={() => {
+        if (route) {
+          router.push(route);
+        } else if (url) {
+          Linking.openURL(url).catch(() => {
+            router.push({
+              pathname: '/menu/web-portal',
+              params: { url, title }
+            });
+          });
+        }
+      }}
     >
       <LinearGradient
         colors={['rgba(168, 85, 247, 0.1)', 'rgba(0, 242, 254, 0.05)']}
@@ -82,7 +181,7 @@ export default function AboutVoexiScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.closeAction}>
           <Ionicons name="close-outline" size={32} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerLabel}>ELITE CORE LOG</Text>
+        <Text style={styles.headerLabel}>{config.headerLabel || 'ELITE CORE LOG'}</Text>
         <View style={{ width: 44 }} />
       </View>
 
@@ -94,10 +193,10 @@ export default function AboutVoexiScreen() {
              <Animated.View style={[styles.logoOrbit, { transform: [{ rotate: orbitRotation }] }]} />
              <VoexiIcon size={110} />
           </View>
-          <Text style={styles.appName}>VOEXI</Text>
+          <Text style={styles.appName}>{config.appName || 'VOEXI'}</Text>
           <View style={styles.statusBadge}>
              <View style={styles.statusDot} />
-             <Text style={styles.statusText}>PRIVATE BETA • NEURAL LINK ACTIVE</Text>
+             <Text style={styles.statusText}>{config.statusBadge || 'PRIVATE BETA • NEURAL LINK ACTIVE'}</Text>
           </View>
         </Animated.View>
 
@@ -108,47 +207,32 @@ export default function AboutVoexiScreen() {
             style={StyleSheet.absoluteFill}
             borderRadius={30}
           />
-          <Text style={styles.manifestoTitle}>ABOUT VOEXI</Text>
+          <Text style={styles.manifestoTitle}>{config.aboutTitle || 'ABOUT VOEXI'}</Text>
           <Text style={styles.manifestoDesc}>
-            VOEXI is a next-generation AI-powered social platform designed for creators, communities, and meaningful digital experiences. Built with innovation, privacy, and performance at its core, VOEXI offers a fresh social experience focused on creativity, intelligent features, and authentic connections.
+            {config.aboutDesc || DEFAULT_ABOUT_CONFIG.aboutDesc}
           </Text>
         </View>
 
-        {/* NEURAL STATS GRID */}
-        <View style={styles.statsGrid}>
-          <View style={styles.statBox}>
-             <Text style={styles.statLabel}>VERSION</Text>
-             <Text style={styles.statValue}>{appVersion}</Text>
-          </View>
-          <View style={styles.statBox}>
-             <Text style={styles.statLabel}>STATUS</Text>
-             <Text style={styles.statValue}>COMING SOON</Text>
-          </View>
-          <View style={styles.statBox}>
-             <Text style={styles.statLabel}>DEVELOPER</Text>
-             <Text style={styles.statValue}>VOEXI TEAM</Text>
-          </View>
-          <View style={styles.statBox}>
-             <Text style={styles.statLabel}>ORIGIN</Text>
-             <Text style={styles.statValue}>CORE PROTOCOL</Text>
-          </View>
+        {/* VERSION BADGE */}
+        <View style={styles.versionContainer}>
+          <Text style={styles.versionLabel}>VERSION <Text style={styles.versionValue}>{config.version || '1.0.0'}</Text></Text>
         </View>
 
-        {/* CORE PROTOCOLS (Buttons pointing to Website) */}
+        {/* CORE PROTOCOLS */}
         <View style={styles.protocolSection}>
-           <ProtocolButton title="Privacy Policy" icon="shield-half-outline" url="https://www.voexi.online/privacy" />
-           <ProtocolButton title="Terms of Service" icon="document-text-outline" url="https://www.voexi.online/terms" />
-           <ProtocolButton title="Contact Support" icon="headset-outline" url="https://support.voexi.com/support/login" />
-           <ProtocolButton title="Report a Problem" icon="bug-outline" url="https://support.voexi.com/support/login" />
-           <ProtocolButton title="Open Source Licenses" icon="code-working-outline" url="https://www.voexi.online/licenses" />
+           <ProtocolButton title="Privacy Policy" icon="shield-half-outline" route="/menu/privacy" />
+           <ProtocolButton title="Terms of Service" icon="document-text-outline" route="/menu/terms" />
+           <ProtocolButton title="Contact Support" icon="headset-outline" route="/menu/report" />
+           <ProtocolButton title="Report a Problem" icon="bug-outline" route="/menu/report" />
+           <ProtocolButton title="Local Media Server Dashboard" icon="server-outline" url="http://192.168.31.39:8080" />
         </View>
 
         {/* FOOTER */}
         <View style={styles.footer}>
            <Text style={styles.footerThankyou}>
-             Thank you for being part of VOEXI. Together we're building the future of social connection.
+             {config.footerThankYou || DEFAULT_ABOUT_CONFIG.footerThankYou}
            </Text>
-           <Text style={styles.copyright}>© {currentYear} VOEXI. ALL RIGHTS RESERVED.</Text>
+           <Text style={styles.copyright}>{config.copyright || DEFAULT_ABOUT_CONFIG.copyright}</Text>
            <View style={styles.footerLine} />
         </View>
 
@@ -161,11 +245,11 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0B0B0F' },
   scroll: { paddingBottom: 60 },
   auraContainer: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
-  glowOrb: { width: 300, height: 300, borderRadius: 150, backgroundColor: '#A855F7', opacity: 0.03, filter: 'blur(100px)' },
+  glowOrb: { width: 300, height: 300, borderRadius: 150, backgroundColor: '#A855F7', opacity: 0.03 },
 
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 15, height: 70 },
   closeAction: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
-  headerLabel: { color: 'rgba(255,255,255,0.3)', fontSize: 10, fontWeight: '900', letterSpacing: 4 },
+  headerLabel: { color: 'rgba(255,255,255,0.4)', fontSize: 10, fontWeight: '900', letterSpacing: 4 },
 
   hero: { alignItems: 'center', paddingVertical: 40 },
   masterLogo: { width: 160, height: 160, justifyContent: 'center', alignItems: 'center' },
@@ -173,15 +257,19 @@ const styles = StyleSheet.create({
   appName: { color: '#fff', fontSize: 38, fontWeight: '900', letterSpacing: 10, marginTop: 25 },
   statusBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.03)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, marginTop: 15, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
   statusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#00C851', marginRight: 8 },
-  statusText: { color: '#666', fontSize: 8, fontWeight: '900', letterSpacing: 1 },
+  statusText: { color: '#888', fontSize: 8, fontWeight: '900', letterSpacing: 1 },
 
   manifestoCard: { marginHorizontal: 25, padding: 30, borderRadius: 35, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', overflow: 'hidden' },
   manifestoTitle: { color: '#A855F7', fontSize: 12, fontWeight: '900', letterSpacing: 3, marginBottom: 15 },
   manifestoDesc: { color: '#aaa', fontSize: 14, lineHeight: 24, fontWeight: '600', textAlign: 'left' },
 
+  versionContainer: { alignItems: 'center', marginTop: 25, marginBottom: 10 },
+  versionLabel: { color: '#64748B', fontSize: 10, fontWeight: '900', letterSpacing: 2 },
+  versionValue: { color: '#00F2FE', fontSize: 12, fontWeight: '900' },
+
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 20, marginTop: 30, gap: 10 },
   statBox: { width: (width - 60) / 2, backgroundColor: 'rgba(255,255,255,0.02)', padding: 15, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.03)' },
-  statLabel: { color: '#444', fontSize: 8, fontWeight: '900', letterSpacing: 1 },
+  statLabel: { color: '#555', fontSize: 8, fontWeight: '900', letterSpacing: 1 },
   statValue: { color: '#fff', fontSize: 11, fontWeight: '800', marginTop: 4, letterSpacing: 0.5 },
 
   protocolSection: { marginTop: 40, paddingHorizontal: 25, gap: 12 },
@@ -190,7 +278,7 @@ const styles = StyleSheet.create({
   protocolText: { flex: 1, color: '#eee', fontSize: 11, fontWeight: '900', letterSpacing: 2 },
 
   footer: { marginTop: 60, alignItems: 'center', paddingHorizontal: 40 },
-  footerThankyou: { color: '#555', fontSize: 12, textAlign: 'center', lineHeight: 20, fontWeight: '700' },
-  copyright: { color: '#222', fontSize: 9, fontWeight: '900', marginTop: 25, letterSpacing: 1 },
+  footerThankyou: { color: '#777', fontSize: 12, textAlign: 'center', lineHeight: 20, fontWeight: '700' },
+  copyright: { color: '#444', fontSize: 9, fontWeight: '900', marginTop: 25, letterSpacing: 1 },
   footerLine: { width: 40, height: 2, backgroundColor: '#A855F7', marginTop: 15, borderRadius: 1, opacity: 0.3 }
 });

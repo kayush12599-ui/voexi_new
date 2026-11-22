@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Tabs, useRouter, usePathname } from 'expo-router';
+import { Tabs, useRouter, usePathname, useNavigation } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { VOEXITheme } from '../../constants/theme';
-import { View, StyleSheet, Text, Platform, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, Text, Platform, TouchableOpacity, PanResponder } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLanguage } from '../../hooks/useLanguage';
@@ -11,6 +11,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../../lib/supabase';
 import { NotificationService } from '../../lib/notificationService';
 import CreateMenuHoloOrbit from '../../components/CreateMenuHoloOrbit';
+import * as Haptics from 'expo-haptics';
 
 /**
  * Custom Tab Bar Component with Active Tab Yellow Outline
@@ -61,7 +62,17 @@ function CustomTabBar({ state, descriptors, navigation, isLight, onOpenCreateMen
           });
 
           if (!event.defaultPrevented) {
-            navigation.navigate(route.name);
+            if (route.name === 'profile') {
+              router.navigate('/(tabs)/profile');
+            } else if (route.name === 'chat') {
+              router.navigate('/(tabs)/chat');
+            } else if (route.name === 'video-feed') {
+              router.navigate('/(tabs)/video-feed');
+            } else if (route.name === 'index') {
+              router.navigate('/(tabs)');
+            } else {
+              navigation.navigate(route.name);
+            }
           }
         };
 
@@ -149,16 +160,11 @@ export default function TabLayout() {
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const { isLight: globalIsLight } = useTheme();
 
-  // --- HIGH SECURITY VERIFICATION SHIELD ON TABS ---
+  // --- BACKGROUND TAB PROFILE & PUSH NOTIFICATIONS SYNC ---
   React.useEffect(() => {
     const verifyTabAccess = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-
-      // 🛡️ BINA LOGIN USER KO LOGIN PAR REDIRECT KARO
-      if (!session) {
-        router.replace('/(auth)/login');
-        return;
-      }
+      if (!session) return;
 
       // Check if account is erased/deleted
       const { data: profile } = await supabase
@@ -210,46 +216,210 @@ export default function TabLayout() {
     }
   };
 
-  return (
-    <View style={{ flex: 1, backgroundColor: isLight ? '#FFFFFF' : '#000000' }}>
-      <Tabs
-        tabBar={(props) => (
-          <CustomTabBar
-            {...props}
-            isLight={isLight}
-            onOpenCreateMenu={() => setShowCreateMenu(true)}
-          />
-        )}
-        screenOptions={{
-          headerShown: false,
-          detachInactiveScreens: true,
-          contentStyle: { backgroundColor: isLight ? '#FFFFFF' : '#000000' },
-        }}
-      >
-        <Tabs.Screen name="index" options={{ title: t('tabs.home') || 'Home' }} />
-        <Tabs.Screen name="video-feed" options={{ title: t('tabs.feed') || 'Feed' }} />
-        <Tabs.Screen name="upload" options={{ title: '' }} />
-        <Tabs.Screen name="chat" options={{ title: 'Message' }} />
-        <Tabs.Screen name="profile" options={{ title: t('tabs.profile') || 'Profile' }} />
-        <Tabs.Screen name="menu" options={{ href: null }} />
-        <Tabs.Screen name="subscribe" options={{ href: null }} />
-      </Tabs>
+  const tabRoutes = ['menu', 'index', 'video-feed', 'upload', 'chat', 'profile', 'avatar'];
 
-      <CreateMenuHoloOrbit
-        visible={showCreateMenu}
-        onClose={() => setShowCreateMenu(false)}
-        onSelect={handleCreateMenuSelect}
-      />
+  const getCurrentTabIndex = () => {
+    if (showCreateMenu) return 3; // When + Upload Create Menu is active
+    if (pathname.includes('/(tabs)/menu') || pathname.endsWith('/menu')) return 0;
+    if (pathname.includes('video-feed')) return 2;
+    if (pathname.includes('chat') || pathname.includes('message')) return 4;
+    if (pathname.includes('profile/avatar') || pathname.includes('/profile/avatar')) return 6;
+    if (pathname.includes('profile')) return 5;
+    return 1; // Default Home
+  };
+
+  const handleSwipeNext = () => {
+    const currentIndex = getCurrentTabIndex();
+    if (currentIndex < tabRoutes.length - 1) {
+      const nextRoute = tabRoutes[currentIndex + 1];
+      try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (e) {}
+
+      if (nextRoute === 'upload') {
+        setShowCreateMenu(true);
+      } else {
+        setShowCreateMenu(false);
+        if (nextRoute === 'chat') {
+          router.navigate('/(tabs)/chat');
+        } else if (nextRoute === 'avatar') {
+          router.push('/profile/avatar');
+        } else if (nextRoute === 'menu') {
+          router.push('/(tabs)/menu');
+        } else {
+          router.navigate(`/(tabs)/${nextRoute}` as any);
+        }
+      }
+    }
+  };
+
+  const handleSwipePrev = () => {
+    const currentIndex = getCurrentTabIndex();
+    if (currentIndex > 0) {
+      const prevRoute = tabRoutes[currentIndex - 1];
+      try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (e) {}
+
+      if (prevRoute === 'upload') {
+        setShowCreateMenu(true);
+      } else {
+        setShowCreateMenu(false);
+        if (prevRoute === 'menu') {
+          router.push('/(tabs)/menu');
+        } else if (prevRoute === 'index') {
+          router.navigate('/(tabs)/index' as any);
+        } else if (prevRoute === 'chat') {
+          router.navigate('/(tabs)/chat');
+        } else if (prevRoute === 'profile') {
+          router.navigate('/(tabs)/profile' as any);
+        } else {
+          router.navigate(`/(tabs)/${prevRoute}` as any);
+        }
+      }
+    }
+  };
+
+  const touchStartX = React.useRef(0);
+  const touchStartY = React.useRef(0);
+  const swipedInGesture = React.useRef(false);
+  const isMouseDown = React.useRef(false);
+
+  const handleStart = (clientX: number, clientY: number) => {
+    touchStartX.current = clientX;
+    touchStartY.current = clientY;
+    swipedInGesture.current = false;
+    isMouseDown.current = true;
+  };
+
+  const handleMove = (clientX: number, clientY: number) => {
+    if (swipedInGesture.current) return;
+    if (Platform.OS === 'web' && !isMouseDown.current) return;
+
+    const deltaX = clientX - touchStartX.current;
+    const deltaY = clientY - touchStartY.current;
+
+    // Minimum horizontal distance threshold for intentional swipe (50px)
+    const minDistance = Platform.OS === 'web' ? 50 : 60;
+
+    // Ensure horizontal gesture dominates over vertical scroll
+    if (Math.abs(deltaX) > minDistance && Math.abs(deltaY) < Math.abs(deltaX) * 0.8) {
+      swipedInGesture.current = true;
+      if (deltaX < -minDistance) {
+        // Swipe Left -> Move Next (Home -> Feed -> + -> Message -> Profile)
+        handleSwipeNext();
+      } else if (deltaX > minDistance) {
+        // Swipe Right -> Move Prev (Profile -> Message -> + -> Feed -> Home)
+        handleSwipePrev();
+      }
+    }
+  };
+
+  const handleEnd = () => {
+    swipedInGesture.current = false;
+    isMouseDown.current = false;
+  };
+
+  const handleTouchStart = (e: any) => {
+    try {
+      const touch = (e.touches && e.touches[0]) ? e.touches[0] : (e.nativeEvent || e);
+      handleStart(touch.pageX || touch.clientX || 0, touch.pageY || touch.clientY || 0);
+    } catch (err) {}
+  };
+
+  const handleTouchMove = (e: any) => {
+    try {
+      const touch = (e.touches && e.touches[0]) ? e.touches[0] : (e.nativeEvent || e);
+      handleMove(touch.pageX || touch.clientX || 0, touch.pageY || touch.clientY || 0);
+    } catch (err) {}
+  };
+
+  const handleMouseDown = (e: any) => {
+    if (Platform.OS !== 'web') return;
+    try {
+      handleStart(e.clientX || e.pageX || 0, e.clientY || e.pageY || 0);
+    } catch (err) {}
+  };
+
+  const handleMouseMove = (e: any) => {
+    if (Platform.OS !== 'web') return;
+    try {
+      handleMove(e.clientX || e.pageX || 0, e.clientY || e.pageY || 0);
+    } catch (err) {}
+  };
+
+  return (
+    <View style={styles.outerWebWrapper}>
+      <View
+        style={[
+          styles.innerAppContainer,
+          { backgroundColor: isLight ? '#FFFFFF' : '#000000' }
+        ]}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleEnd}
+        {...(Platform.OS === 'web' ? {
+          onMouseDown: handleMouseDown,
+          onMouseMove: handleMouseMove,
+          onMouseUp: handleEnd,
+          onMouseLeave: handleEnd,
+        } as any : {})}
+      >
+        <Tabs
+          tabBar={(props) => (
+            <CustomTabBar
+              {...props}
+              isLight={isLight}
+              onOpenCreateMenu={() => setShowCreateMenu(true)}
+            />
+          )}
+          screenOptions={{
+            headerShown: false,
+            detachInactiveScreens: false,
+            lazy: false,
+            animation: 'fade',
+            contentStyle: { backgroundColor: isLight ? '#FFFFFF' : '#000000' },
+          }}
+        >
+          <Tabs.Screen name="index" options={{ title: t('tabs.home') || 'Home' }} />
+          <Tabs.Screen name="video-feed" options={{ title: t('tabs.feed') || 'Feed' }} />
+          <Tabs.Screen name="upload" options={{ title: '' }} />
+          <Tabs.Screen name="chat" options={{ title: 'Message' }} />
+          <Tabs.Screen name="profile" options={{ title: t('tabs.profile') || 'Profile' }} />
+          <Tabs.Screen name="menu" options={{ href: null }} />
+          <Tabs.Screen name="subscribe" options={{ href: null }} />
+        </Tabs>
+
+        <CreateMenuHoloOrbit
+          visible={showCreateMenu}
+          onClose={() => setShowCreateMenu(false)}
+          onSelect={handleCreateMenuSelect}
+        />
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  outerWebWrapper: {
+    flex: 1,
+    backgroundColor: Platform.OS === 'web' ? '#06060E' : 'transparent',
+    width: '100%',
+    height: '100%',
+  },
+  innerAppContainer: {
+    flex: 1,
+    width: '100%',
+    maxWidth: Platform.OS === 'web' ? 680 : '100%',
+    alignSelf: 'center',
+    position: 'relative',
+    overflow: 'hidden',
+    boxShadow: Platform.OS === 'web' ? '0px 0px 50px rgba(0, 242, 254, 0.15)' : undefined,
+  },
   tabBarContainer: {
     position: 'absolute',
     bottom: 0,
-    left: 0,
-    right: 0,
+    left: Platform.OS === 'web' ? '50%' : 0,
+    right: Platform.OS === 'web' ? 'auto' : 0,
+    transform: Platform.OS === 'web' ? [{ translateX: '-50%' }] : [],
+    maxWidth: Platform.OS === 'web' ? 680 : '100%',
+    width: '100%',
     height: Platform.OS === 'android' ? 52 : 68,
     backgroundColor: '#000000',
     borderTopWidth: 0.5,

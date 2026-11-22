@@ -398,7 +398,7 @@ export default function ChannelRegistration() {
               <Text style={[styles.termsCardTitle, isLight && { color: '#000' }]}>PLATFORM TERMS & RULES</Text>
             </View>
             <Text style={[styles.termsCardDesc, isLight && { color: '#666' }]}>
-              Please review our broadcaster policies and community guidelines before submitting your channel verification.
+              Please review our creator policies and community guidelines before submitting your channel verification.
             </Text>
             <View style={styles.termsBtnRow}>
               <TouchableOpacity

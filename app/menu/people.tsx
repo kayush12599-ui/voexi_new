@@ -12,7 +12,7 @@ const THEME = { bg: '#000', card: '#0a0a0f', accent: '#6366f1', text: '#fff', te
 export default function PeopleHubScreen() {
   const router = useRouter();
   const { theme: themeMode, isLight } = useTheme();
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);

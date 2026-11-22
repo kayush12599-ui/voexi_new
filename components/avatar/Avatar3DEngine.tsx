@@ -1,8 +1,16 @@
 import React, { forwardRef, useImperativeHandle, useRef, useEffect } from 'react';
-import { View, StyleSheet } from 'react-native';
-import { WebView } from 'react-native-webview';
+import { View, StyleSheet, Platform } from 'react-native';
 import { SERVER_IP, AVATAR_SERVER_PORT } from '../../constants/config';
 import { AvatarAsset, EquippedState } from '../../avatar/lib/AvatarAssetRegistry';
+
+let WebView: any = null;
+if (Platform.OS !== 'web') {
+  try {
+    WebView = require('react-native-webview').WebView;
+  } catch (e) {
+    console.warn("WebView native module not found:", e);
+  }
+}
 
 export interface Avatar3DEngineProps {
   modelUrl?: string;
@@ -31,9 +39,8 @@ export interface Avatar3DEngineRef {
   playFlex: () => void;
   playWave: () => void;
   playPowerUp: () => void;
-  loadCustomModel: (modelUrl: string) => void;
-  loadCustomEmote: (emoteUrl: string) => void;
-  // Modular V1 Contract Ref API
+  loadCustomModel: (modelUrl: string, itemName?: string, price?: number, genderTarget?: string) => void;
+  loadCustomEmote: (emoteUrl: string, itemName?: string, price?: number, genderTarget?: string) => void;
   equipAsset: (asset: AvatarAsset) => void;
   equipState: (state: EquippedState) => void;
   playEmote: (emoteAsset: AvatarAsset) => void;
@@ -52,11 +59,17 @@ export const Avatar3DEngine = forwardRef<Avatar3DEngineRef, Avatar3DEngineProps>
   onProgress,
   onError
 }, ref) => {
-  const webViewRef = useRef<WebView>(null);
+  const webViewRef = useRef<any>(null);
+  const iframeRef = useRef<any>(null);
 
   const sendCommand = (cmd: object) => {
-    if (webViewRef.current && cmd) {
-      const jsonStr = JSON.stringify(cmd);
+    if (!cmd) return;
+    const jsonStr = JSON.stringify(cmd);
+    if (Platform.OS === 'web') {
+      if (iframeRef.current && iframeRef.current.contentWindow) {
+        iframeRef.current.contentWindow.postMessage(jsonStr, '*');
+      }
+    } else if (webViewRef.current) {
       webViewRef.current.postMessage(jsonStr);
     }
   };
@@ -143,7 +156,6 @@ export const Avatar3DEngine = forwardRef<Avatar3DEngineRef, Avatar3DEngineProps>
       sendCommand({ type: 'setEmoteFile', emoteUrl: url, name: itemName, price, gender: genderTarget });
     },
 
-    // Modular V1 Contract API
     equipAsset: (asset: AvatarAsset) => {
       sendCommand({
         type: 'equipAsset',
@@ -170,7 +182,6 @@ export const Avatar3DEngine = forwardRef<Avatar3DEngineRef, Avatar3DEngineProps>
     }
   }));
 
-  // Initialize stageUrl ONCE on mount with hardware acceleration flags
   const initialStageUrl = useRef(
     `http://${SERVER_IP}:${AVATAR_SERVER_PORT}/avatar/web/stage.html?model=${encodeURIComponent(modelUrl)}&gender=${gender.toLowerCase()}&debug=${debugMode ? '1' : '0'}`
   ).current;
@@ -194,6 +205,38 @@ export const Avatar3DEngine = forwardRef<Avatar3DEngineRef, Avatar3DEngineProps>
       });
     }
   }, [topColor, bottomColor]);
+
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const handleWebMessage = (event: MessageEvent) => {
+        try {
+          const rawData = event.data;
+          if (!rawData || typeof rawData !== 'string') return;
+
+          const data = JSON.parse(rawData);
+          if (!data || !data.type) return;
+
+          switch (data.type) {
+            case 'ENGINE_READY':
+              onEngineReady?.();
+              break;
+            case 'MODEL_LOADED':
+              onModelLoaded?.();
+              break;
+            case 'PROGRESS':
+              onProgress?.(data.percent || 0);
+              break;
+            case 'ERROR':
+              onError?.(data.error || 'Unknown 3D Engine Error');
+              break;
+          }
+        } catch (err) {}
+      };
+
+      window.addEventListener('message', handleWebMessage);
+      return () => window.removeEventListener('message', handleWebMessage);
+    }
+  }, []);
 
   const handleMessage = (event: any) => {
     try {
@@ -222,33 +265,51 @@ export const Avatar3DEngine = forwardRef<Avatar3DEngineRef, Avatar3DEngineProps>
           }
           break;
       }
-    } catch (err) {
-      // Safe catch
-    }
+    } catch (err) {}
   };
+
+  if (Platform.OS === 'web') {
+    return (
+      <View style={styles.container}>
+        <iframe
+          ref={iframeRef}
+          src={initialStageUrl}
+          style={{
+            width: '100%',
+            height: '100%',
+            border: 'none',
+            backgroundColor: 'transparent'
+          }}
+          allow="autoplay; fullscreen"
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
-      <WebView
-        ref={webViewRef}
-        source={{ uri: initialStageUrl }}
-        style={styles.webview}
-        originWhitelist={['*']}
-        javaScriptEnabled={true}
-        domStorageEnabled={true}
-        androidLayerType="hardware"
-        renderToHardwareTextureAndroid={true}
-        androidHardwareAccelerationDisabled={false}
-        cacheEnabled={true}
-        incognito={false}
-        allowFileAccess={true}
-        allowUniversalAccessFromFileURLs={true}
-        onMessage={handleMessage}
-        onError={(syntheticEvent) => {
-          const { nativeEvent } = syntheticEvent;
-          onError?.(`WebView Load Failed: ${nativeEvent.description}`);
-        }}
-      />
+      {WebView ? (
+        <WebView
+          ref={webViewRef}
+          source={{ uri: initialStageUrl }}
+          style={styles.webview}
+          originWhitelist={['*']}
+          javaScriptEnabled={true}
+          domStorageEnabled={true}
+          androidLayerType="hardware"
+          renderToHardwareTextureAndroid={true}
+          androidHardwareAccelerationDisabled={false}
+          cacheEnabled={true}
+          incognito={false}
+          allowFileAccess={true}
+          allowUniversalAccessFromFileURLs={true}
+          onMessage={handleMessage}
+          onError={(syntheticEvent: any) => {
+            const { nativeEvent } = syntheticEvent;
+            onError?.(`WebView Load Failed: ${nativeEvent.description}`);
+          }}
+        />
+      ) : null}
     </View>
   );
 });

@@ -98,6 +98,27 @@ export default function ChatRoom() {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
 
+  const formatLastSeen = (lastSeenStr: string | null, isOnline: boolean) => {
+    if (isOnline) return '🟢 Active now';
+    if (!lastSeenStr) return '⚪ Offline';
+
+    const now = new Date().getTime();
+    const seenTime = new Date(lastSeenStr).getTime();
+    const diffMs = now - seenTime;
+
+    if (isNaN(seenTime) || diffMs < 0) return '⚪ Offline';
+
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return '⚪ Last seen just now';
+    if (diffMins < 60) return `⚪ Last seen ${diffMins}m ago`;
+    if (diffHours < 24) return `⚪ Last seen ${diffHours}h ago`;
+    if (diffDays === 1) return '⚪ Last seen yesterday';
+    return `⚪ Last seen ${new Date(lastSeenStr).toLocaleDateString()}`;
+  };
+
   useEffect(() => {
     if (isRecording) {
       Animated.loop(
@@ -115,6 +136,49 @@ export default function ChatRoom() {
     const interval = setInterval(markMessagesAsRead, 5000);
     return () => clearInterval(interval);
   }, [id]);
+
+  // Presence & Database Last-Seen Heartbeat Sync
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const updateMyLastSeen = async () => {
+      try {
+        const nowIso = new Date().toISOString();
+        await supabase
+          .from('profiles')
+          .update({ last_seen: nowIso, updated_at: nowIso })
+          .eq('id', currentUser.id);
+      } catch (e) {}
+    };
+
+    updateMyLastSeen();
+    const heartbeat = setInterval(updateMyLastSeen, 20000);
+    return () => {
+      clearInterval(heartbeat);
+      updateMyLastSeen();
+    };
+  }, [currentUser?.id]);
+
+  // Periodically Fetch Friend's Real Last-Seen Status
+  useEffect(() => {
+    if (!id || isGroup) return;
+    const fetchFriendStatus = async () => {
+      try {
+        const { data } = await supabase
+          .from('profiles')
+          .select('id, username, channel_name, avatar_url, last_seen')
+          .eq('id', String(id))
+          .maybeSingle();
+
+        if (data) {
+          setFriend((prev: any) => ({ ...prev, ...data }));
+        }
+      } catch (e) {}
+    };
+
+    fetchFriendStatus();
+    const interval = setInterval(fetchFriendStatus, 15000);
+    return () => clearInterval(interval);
+  }, [id, isGroup]);
 
   useEffect(() => {
     if (!id || !currentUser) return;
@@ -148,7 +212,9 @@ export default function ChatRoom() {
                 const next = [...current]; next[matchIdx] = { ...newMsg, status: 'sent' }; return next;
               }
               const newList = [...current, newMsg];
-              return newList.filter((msg, index, self) => index === self.findIndex((t) => t.id === msg.id));
+              const uniqueList = newList.filter((msg, index, self) => index === self.findIndex((t) => t.id === msg.id));
+              AsyncStorage.setItem(`@cached_chat_history_${id}`, JSON.stringify(uniqueList)).catch(() => {});
+              return uniqueList;
             });
             if (newMsg.sender_id !== currentUser.id) markMessagesAsRead();
           }
@@ -198,6 +264,12 @@ export default function ChatRoom() {
 
     if (user) {
       setLoading(true);
+      const cacheKey = `@cached_chat_history_${id}`;
+      try {
+        const cachedRaw = await AsyncStorage.getItem(cacheKey);
+        if (cachedRaw) setMessages(JSON.parse(cachedRaw));
+      } catch (e) {}
+
       try {
         let query = supabase.from('messages').select('*, profiles:sender_id(username, avatar_url)');
         if (isGroup) {
@@ -211,8 +283,8 @@ export default function ChatRoom() {
            if (mems) setMembers(mems);
            query = query.eq('group_id', String(id));
         } else {
-           const { data: friendData } = await supabase.from('profiles').select('*').eq('id', String(id)).single();
-           setFriend(friendData);
+           const { data: friendData } = await supabase.from('profiles').select('*, last_seen').eq('id', String(id)).maybeSingle();
+           if (friendData) setFriend(friendData);
            query = query.is('group_id', null).or(`and(sender_id.eq.${user.id},receiver_id.eq.${id}),and(sender_id.eq.${id},receiver_id.eq.${user.id})`);
         }
 
@@ -220,6 +292,7 @@ export default function ChatRoom() {
         if (history) {
           const activeMsgs = history.filter(m => !m.deleted_for || !m.deleted_for.includes(user.id));
           setMessages(activeMsgs);
+          AsyncStorage.setItem(cacheKey, JSON.stringify(activeMsgs)).catch(() => {});
         }
         loadSavedTheme();
         loadNickname();
@@ -317,7 +390,12 @@ export default function ChatRoom() {
 
     const tempId = `optimistic-${Date.now()}`;
     const optimisticMsg: any = { id: tempId, sender_id: currentUser.id, group_id: isGroup ? id : null, receiver_id: isGroup ? null : id, content: content.trim(), type, created_at: new Date().toISOString(), status: 'sending', is_view_once: isViewOnce };
-    setMessages(current => [...current, optimisticMsg]);
+
+    setMessages(current => {
+      const next = [...current, optimisticMsg];
+      AsyncStorage.setItem(`@cached_chat_history_${id}`, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
     setInputText('');
     setReplyingTo(null);
 
@@ -326,8 +404,15 @@ export default function ChatRoom() {
     else Object.assign(messageData, { receiver_id: String(id) });
 
     const { data, error } = await supabase.from('messages').insert(messageData).select().single();
-    if (data) setMessages(current => current.map(m => m.id === tempId ? { ...data, status: 'sent' } : m));
-    else if (error) setMessages(current => current.map(m => m.id === tempId ? { ...m, status: 'error' } : m));
+    if (data) {
+      setMessages(current => {
+        const updated = current.map(m => m.id === tempId ? { ...data, status: 'sent' } : m);
+        AsyncStorage.setItem(`@cached_chat_history_${id}`, JSON.stringify(updated)).catch(() => {});
+        return updated;
+      });
+    } else if (error) {
+      setMessages(current => current.map(m => m.id === tempId ? { ...m, status: 'error' } : m));
+    }
   };
 
   const handleTyping = (text: string) => {
@@ -747,12 +832,12 @@ export default function ChatRoom() {
                     <Text style={styles.headerName} numberOfLines={1}>
                       {nickname || friend?.name || friend?.channel_name || friend?.username || (isGroup ? 'Community Room' : 'VOEXI User')}
                     </Text>
-                    <Text style={[styles.onlineStatus, { color: isGroup ? '#00F2FE' : (isFriendOnline ? '#00C851' : '#00C851') }]}>
+                    <Text style={[styles.onlineStatus, { color: isGroup ? '#00F2FE' : (isFriendOnline ? '#00C851' : '#64748B') }]}>
                       {typingUsers.length > 0
-                        ? 'typing...'
+                        ? '✍️ typing...'
                         : (isGroup
                             ? `${members.length || 1} Members Active • Tap for Info`
-                            : (isFriendOnline ? 'active now' : 'online'))
+                            : formatLastSeen(friend?.last_seen, isFriendOnline))
                       }
                     </Text>
                 </View>
@@ -768,13 +853,30 @@ export default function ChatRoom() {
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.inputArea}>
-          <TouchableOpacity onPress={() => setPlusMenuVisible(true)}><Ionicons name="add" size={30} color={selectedTheme.accent} /></TouchableOpacity>
-          <TextInput style={styles.input} value={inputText} onChangeText={handleTyping} placeholder="Type a signal..." placeholderTextColor="#444" />
-          {inputText.trim() ? (
-            <TouchableOpacity onPress={() => sendMessage(inputText)}><Ionicons name="send" size={24} color={selectedTheme.accent} /></TouchableOpacity>
-          ) : (
-            <TouchableOpacity onPress={startVoiceRecording}><Ionicons name="mic" size={24} color={selectedTheme.accent} /></TouchableOpacity>
-          )}
+          <TouchableOpacity onPress={() => setPlusMenuVisible(true)} style={{ padding: 4 }}>
+            <Ionicons name="add-circle" size={30} color={selectedTheme.accent} />
+          </TouchableOpacity>
+          <TextInput
+            style={styles.input}
+            value={inputText}
+            onChangeText={handleTyping}
+            placeholder="Type a message..."
+            placeholderTextColor="#666"
+            multiline
+          />
+          <TouchableOpacity onPress={startVoiceRecording} style={{ padding: 6 }}>
+            <Ionicons name="mic" size={24} color={selectedTheme.accent} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => sendMessage(inputText)}
+            activeOpacity={0.7}
+            style={[
+              styles.sendCircleBtn,
+              { backgroundColor: selectedTheme.accent }
+            ]}
+          >
+            <Ionicons name="paper-plane" size={18} color="#FFFFFF" />
+          </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
 
@@ -1046,7 +1148,15 @@ const styles = StyleSheet.create({
   msgInfo: { flexDirection: 'row', alignItems: 'center', marginTop: 4, alignSelf: 'flex-end' },
   msgTime: { fontSize: 8, color: 'rgba(255,255,255,0.5)' },
   inputArea: { flexDirection: 'row', alignItems: 'center', padding: 10, backgroundColor: '#050505', borderTopWidth: 1, borderTopColor: '#111' },
-  input: { flex: 1, color: '#fff', paddingHorizontal: 15, fontSize: 15, minHeight: 45 },
+  input: { flex: 1, color: '#fff', paddingHorizontal: 12, fontSize: 15, minHeight: 45 },
+  sendCircleBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 6,
+  },
   dateSeparator: { alignItems: 'center', marginVertical: 20 },
   dateText: { color: '#444', fontSize: 10, fontWeight: '900', letterSpacing: 1 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' },

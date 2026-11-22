@@ -9,6 +9,7 @@ import { useLanguage } from '../../hooks/useLanguage';
 import { supabase } from '../../lib/supabase';
 import { useRouter } from 'expo-router';
 import { VoexiIcon } from '../../components/VoexiIcon';
+import { subscribeToFollows } from '../../lib/social';
 
 interface Channel {
   id: string;

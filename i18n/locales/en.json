@@ -26,9 +26,9 @@
     "login_sub": "Establish a secure uplink to your station.",
     "email": "Email Address",
     "password": "Password",
-    "login_btn": "AUTHENTICATE",
-    "signup_btn": "Register New Agent",
-    "no_account": "New broadcaster?",
+    "login_btn": "LOGIN",
+    "signup_btn": "Sign Up",
+    "no_account": "Don't have an account?",
     "forgot_pass": "Lost Neural Key?",
     "google_btn": "GOOGLE UPLINK"
   },

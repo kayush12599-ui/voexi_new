@@ -13,17 +13,19 @@ import { useTheme } from '../../hooks/useTheme';
 import { useLanguage } from '../../hooks/useLanguage';
 import { VoexiIcon } from '../../components/VoexiIcon';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Haptics from 'expo-haptics';
 
 const { width } = Dimensions.get('window');
 
 const ALL_MENU_ITEMS = [
+  { id: '3d-universe', title: '3D Avatar Universe', icon: 'cube-outline', color: '#00F2FE', lib: 'Ionicons', badge: '3D', route: '/menu/3d-universe' },
   { id: 'branding', title: 'Brand Identity', icon: 'color-palette-outline', color: '#FF0080', route: '/branding' },
   { id: 'monetization', title: 'Creator Earnings', icon: 'wallet-outline', color: '#10B981', badge: 'Earn', route: '/menu/monetization' },
   { id: 'premium', title: 'Premium Access', icon: 'crown-outline', color: '#EAB308', lib: 'MaterialCommunityIcons', route: '/menu/premium' },
 
   { id: 'ar-shot', title: 'AR Shot', icon: 'camera-reverse-outline', color: '#FF0055', route: '/menu/ar-shot' },
   { id: 'ai-chat', title: 'VOEXI AI', icon: 'robot-outline', color: '#6366F1', lib: 'MaterialCommunityIcons', badge: 'Pro', route: '/menu/aichat' },
-  { id: 'chat', title: 'Messages', icon: 'chatbubbles-outline', color: '#A855F7', route: '/menu/chat' },
+  { id: 'chat', title: 'Messages', icon: 'chatbubbles-outline', color: '#A855F7', route: '/(tabs)/chat' },
 
   { id: 'saved', title: 'Saved Content', icon: 'bookmark-outline', color: '#EC4899', route: '/menu/saved-videos' },
   { id: 'downloads', title: 'Offline Videos', icon: 'cloud-download-outline', color: '#22C55E', route: '/menu/downloads' },
@@ -42,7 +44,7 @@ const ALL_MENU_ITEMS = [
 
 const MENU_SECTIONS = [
   { key: 'creator', items: ['monetization', 'premium'] },
-  { key: 'studio', items: ['ar-shot', 'ai-chat', 'chat'] },
+  { key: 'studio', items: ['3d-universe', 'ar-shot', 'ai-chat', 'chat'] },
   { key: 'library', items: ['saved', 'downloads', 'history', 'hide'] },
   { key: 'community', items: ['analytics', 'groups'] },
   { key: 'support', items: ['settings', 'ad-test', 'support', 'emergency', 'about'] },
@@ -135,7 +137,7 @@ export default function MenuScreen() {
   };
 
   const runSystemDiagnostics = async () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {}); } catch (e) {}
 
     let server2Status = "Checking...";
     let fileCount = 0;

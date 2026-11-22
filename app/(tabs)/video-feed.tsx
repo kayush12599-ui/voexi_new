@@ -15,6 +15,7 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 import { ServerDiscovery } from '../../lib/serverDiscovery';
+import { useResponsive } from '../../hooks/useResponsive';
 
 const CommentVideoThumbnail = memo(({ mediaUrl }: { mediaUrl: string }) => {
   return (
@@ -31,6 +32,7 @@ const CommentVideoThumbnail = memo(({ mediaUrl }: { mediaUrl: string }) => {
 
 export default function VideoFeedScreen() {
   const router = useRouter();
+  const { isDesktop } = useResponsive();
   const localParams = useLocalSearchParams();
   const globalParams = useGlobalSearchParams();
   const { height: windowHeight } = useWindowDimensions();
@@ -310,6 +312,26 @@ export default function VideoFeedScreen() {
     }
   };
 
+const isReelOrVideoPost = (p: any): boolean => {
+  if (!p) return false;
+  const pt = String(p.post_type || p.category || '').toLowerCase().trim();
+  const mt = String(p.media_type || '').toLowerCase().trim();
+  const fn = String(p.filename || p.title || '').toLowerCase().trim();
+  const url = String(p.video_url || p.media_url || p.url || '').toLowerCase().trim();
+
+  // Explicitly exclude non-video content (photos, articles, sound)
+  if (pt === 'photo' || pt === 'image' || pt === 'writing' || pt === 'letter' || pt === 'text' || pt === 'sound' || pt === 'audio' || mt === 'image' || mt === 'text' || mt === 'audio') {
+    return false;
+  }
+
+  if (p.is_reel === true || p.is_reel === 'true') return true;
+  if (pt.includes('reel') || pt.includes('video') || pt.includes('short') || mt.includes('video')) return true;
+  if (fn.includes('reel') || fn.includes('video') || fn.endsWith('.mp4') || fn.endsWith('.mov') || fn.endsWith('.m3u8')) return true;
+  if (url.includes('.mp4') || url.includes('.mov') || url.includes('.m3u8') || url.includes('.webm') || url.includes('/video/') || url.includes('/reels/')) return true;
+
+  return false;
+};
+
   const fetchFeed = async () => {
     // 1. INSTANT LOCAL CACHE RENDER (0ms delay)
     try {
@@ -317,10 +339,7 @@ export default function VideoFeedScreen() {
       if (localRaw && videos.length === 0) {
         const localList = JSON.parse(localRaw);
         if (Array.isArray(localList)) {
-          const localReels = localList.filter((p: any) => {
-            const pt = (p.post_type || p.category || '').toLowerCase();
-            return pt === 'reels' || pt === 'reel' || p.is_reel === true;
-          });
+          const localReels = localList.filter((p: any) => isReelOrVideoPost(p));
           if (localReels.length > 0) {
             setVideos(localReels);
             setLoading(false);
@@ -332,16 +351,16 @@ export default function VideoFeedScreen() {
     if (videos.length === 0) setLoading(true);
 
     try {
-      // 2. PARALLEL NETWORK FETCH FOR REELS
+      // 2. PARALLEL NETWORK FETCH FOR REELS & VIDEOS
       const [sessionRes, supabasePostsRes, penDriveRes] = await Promise.allSettled([
         supabase.auth.getSession(),
         supabase
           .from('posts')
           .select('*, profiles:profiles!posts_user_id_fkey(*)')
-          .or('post_type.in.("Reels","Reel","reels","reel"),is_reel.eq.true')
+          .or('post_type.ilike.%reel%,post_type.ilike.%video%,is_reel.eq.true,media_type.ilike.%video%')
           .order('created_at', { ascending: false })
           .limit(50),
-        fetchWithTimeout('http://192.168.31.39:8080/files.json', 1200),
+        fetchWithTimeout(`${getLocalMediaServerUrl()}/files.json`, 2000),
       ]);
 
       const session = sessionRes.status === 'fulfilled' ? sessionRes.value.data.session : null;
@@ -357,10 +376,9 @@ export default function VideoFeedScreen() {
           const { data: fallbackData } = await supabase
             .from('posts')
             .select('*, profiles(*)')
-            .in('post_type', ['Reels', 'Reel', 'reels', 'reel'])
             .order('created_at', { ascending: false })
             .limit(50);
-          if (fallbackData) supabasePosts = fallbackData;
+          if (fallbackData) supabasePosts = fallbackData.filter(p => isReelOrVideoPost(p));
         } catch (e) {}
       }
 
@@ -371,25 +389,29 @@ export default function VideoFeedScreen() {
         if (localRaw) {
           const localList = JSON.parse(localRaw);
           if (Array.isArray(localList)) {
-            localReels = localList.filter((p: any) => {
-              if (currentUserId && p.user_id && p.user_id !== currentUserId) return false;
-              const pt = (p.post_type || p.category || '').toLowerCase();
-              return pt === 'reels' || pt === 'reel' || p.is_reel === true;
-            });
+            localReels = localList.filter((p: any) => isReelOrVideoPost(p));
           }
         }
       } catch (e) {}
 
-      // Process PenDrive files safely - STRICT REELS FILTER
+      // Process PenDrive files safely - FLEXIBLE REELS/VIDEO FILTER & URL NORMALIZATION
       let penDriveFiles: any[] = [];
       if (penDriveRes.status === 'fulfilled' && penDriveRes.value && penDriveRes.value.ok) {
         try {
           const allPenFiles = await penDriveRes.value.json();
-          penDriveFiles = allPenFiles.filter((f: any) => {
-            const pt = (f.post_type || f.category || '').toLowerCase();
-            const fn = (f.filename || f.title || '').toLowerCase();
-            return pt === 'reels' || pt === 'reel' || f.is_reel === true || fn.startsWith('reel_') || fn.includes('reel');
-          });
+          if (Array.isArray(allPenFiles)) {
+            penDriveFiles = allPenFiles.map((f: any) => {
+              const fileUrl = f.media_url || f.video_url || f.url || `${getLocalMediaServerUrl()}${f.path || f.uri || ('/uploads/' + (f.filename || ''))}`;
+              return {
+                ...f,
+                id: f.id || f.filename || `pen_${Math.random()}`,
+                media_url: fileUrl,
+                video_url: fileUrl,
+                thumbnail_url: f.thumbnail_url || fileUrl,
+                profiles: f.profiles || { username: f.uploader || 'pen_drive_station', channel_name: f.uploader || 'Pen Drive Media', avatar_url: '' }
+              };
+            }).filter((f: any) => isReelOrVideoPost(f));
+          }
         } catch (e) {}
       }
 
@@ -402,7 +424,7 @@ export default function VideoFeedScreen() {
       // Fetch Server 2 Profiles Map for 100% Real Logo Sync
       let server2ProfilesMap: Record<string, any> = {};
       try {
-        const s2Res = await fetchWithTimeout('http://192.168.31.39:8080/profiles.json', 1500);
+        const s2Res = await fetchWithTimeout(`${getLocalMediaServerUrl()}/profiles.json`, 2000);
         if (s2Res && s2Res.ok) {
           const s2Data = await s2Res.json();
           if (Array.isArray(s2Data)) {
@@ -424,21 +446,19 @@ export default function VideoFeedScreen() {
         let url = rawUrl.trim();
         if (url === '' || url === 'null') return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=A855F7&color=fff&bold=true`;
         if (url.startsWith('//')) return 'https:' + url;
-        if (url.startsWith('/uploads/') || url.startsWith('/files/') || url.startsWith('/avatar/') || url.startsWith('/logos/')) return `http://192.168.31.39:8080${url}`;
-        if (url.startsWith('uploads/') || url.startsWith('files/') || url.startsWith('avatar/') || url.startsWith('logos/')) return `http://192.168.31.39:8080/${url}`;
+        const mediaBase = getLocalMediaServerUrl();
+        if (url.startsWith('/uploads/') || url.startsWith('/files/') || url.startsWith('/avatar/') || url.startsWith('/logos/')) return `${mediaBase}${url}`;
+        if (url.startsWith('uploads/') || url.startsWith('files/') || url.startsWith('avatar/') || url.startsWith('logos/')) return `${mediaBase}/${url}`;
         if (url.startsWith('/')) return `https://voexi.b-cdn.net${url}`;
         if (!url.startsWith('http') && !url.startsWith('file://') && !url.startsWith('content://')) return `https://voexi.b-cdn.net/${url}`;
         return url;
       };
 
-      // Combine Supabase DB Posts FIRST, then Local Uploads, then PenDrive
-      const rawCombined = [...supabasePosts, ...localReels, ...penDriveFiles];
+      // Combine Local Uploads FIRST, then Supabase DB Posts, then PenDrive
+      const rawCombined = [...localReels, ...supabasePosts, ...penDriveFiles];
       for (const post of rawCombined) {
         if (post && (post.media_url || post.video_url) && !seenUrls.has(post.media_url || post.video_url)) {
-          const pt = (post.post_type || post.category || '').toLowerCase();
-          const fn = (post.filename || post.title || '').toLowerCase();
-          const isStrictReel = pt === 'reels' || pt === 'reel' || post.is_reel === true || fn.startsWith('reel_') || fn.includes('reel');
-          if (isStrictReel) {
+          if (isReelOrVideoPost(post)) {
             seenUrls.add(post.media_url || post.video_url);
 
             // Sanitize and preserve author profiles from Server 2 & Local Cache
@@ -716,14 +736,11 @@ export default function VideoFeedScreen() {
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       <SafeGestureCamera isActive={gestureEnabled && isFocused} onGesture={handleAirGesture} />
 
-      <View style={styles.feedWrapper} onLayout={onFeedLayout}>
-        {loading && videos.length === 0 ? (
-          <ActivityIndicator size="large" color={VOEXITheme.colors.primary} style={{ flex: 1 }} />
-        ) : (
-          <FlatList
-            ref={flatListRef}
-            data={videos}
-            keyExtractor={item => item.id}
+      <View style={[styles.feedWrapper, isDesktop && styles.desktopFeedWrapper]} onLayout={onFeedLayout}>
+        <FlatList
+          ref={flatListRef}
+          data={videos}
+          keyExtractor={item => item.id}
             snapToInterval={itemH}
             snapToAlignment="start"
             decelerationRate="fast"
@@ -859,10 +876,10 @@ export default function VideoFeedScreen() {
                               )}
                             </View>
 
-                            <Text style={styles.commentText}>{item.content || item.text || ''}</Text>
+                            <Text style={styles.commentText}>{String(item.content || item.text || '')}</Text>
 
                             {/* Media Signal Attachments */}
-                            {item.media_url && (
+                            {item.media_url ? (
                               (item.type === 'image' || String(item.media_url).match(/\.(jpg|jpeg|png|gif|webp)$/i)) ? (
                                 <Image source={{ uri: item.media_url }} style={{ width: 160, height: 110, borderRadius: 10, marginTop: 6 }} />
                               ) : (item.type === 'video' || String(item.media_url).match(/\.(mp4|mov)$/i)) ? (
@@ -873,11 +890,11 @@ export default function VideoFeedScreen() {
                                   <Text style={{ color: '#F1F5F9', fontSize: 11, fontWeight: 'bold' }}>Voice Comment Signal</Text>
                                 </View>
                               )
-                            )}
+                            ) : null}
 
                             {/* Action Buttons Row: Time • Reply (count) • 3-Dots */}
                             <View style={styles.commentActionBar}>
-                              <Text style={styles.actionTime}>{timeAgo}</Text>
+                              <Text style={styles.actionTime}>{String(timeAgo)}</Text>
 
                               {/* Reply Button */}
                               <TouchableOpacity onPress={() => handleReplyPress(item)} style={styles.actionBtn}>
@@ -891,28 +908,28 @@ export default function VideoFeedScreen() {
                             </View>
 
                             {/* INSTAGRAM-STYLE VIEW REPLIES TOGGLE BUTTON */}
-                            {childReplies.length > 0 && !isExpanded && (
+                            {Boolean(childReplies.length > 0 && !isExpanded) ? (
                               <TouchableOpacity
                                 onPress={() => toggleExpandReplies(item.id)}
                                 style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 }}
                               >
                                 <View style={{ width: 24, height: 1, backgroundColor: '#38BDF8' }} />
                                 <Text style={{ color: '#38BDF8', fontSize: 11, fontWeight: '800' }}>
-                                  View {childReplies.length} {childReplies.length === 1 ? 'reply' : 'replies'} ▾
+                                  {`View ${childReplies.length} ${childReplies.length === 1 ? 'reply' : 'replies'} ▾`}
                                 </Text>
                               </TouchableOpacity>
-                            )}
+                            ) : null}
                           </View>
 
                           {/* Comment Heart Like Button */}
                           <TouchableOpacity onPress={() => toggleLikeComment(item.id)} style={styles.likeHeartCol}>
                             <Ionicons name={likeState.liked ? "heart" : "heart-outline"} size={16} color={likeState.liked ? "#EF4444" : "#64748B"} />
-                            {likeState.count > 0 && <Text style={styles.likeCountTxt}>{likeState.count}</Text>}
+                            {Boolean(likeState.count > 0) ? <Text style={styles.likeCountTxt}>{String(likeState.count)}</Text> : null}
                           </TouchableOpacity>
                         </View>
 
                         {/* Expanded Child Replies Thread */}
-                        {isExpanded && (
+                        {Boolean(isExpanded) ? (
                           <View style={{ marginLeft: 38, borderLeftWidth: 1.5, borderLeftColor: 'rgba(168, 85, 247, 0.4)', paddingLeft: 12 }}>
                             {childReplies.map((reply) => {
                               const rUser = reply.profiles?.channel_name || reply.profiles?.username || reply.user || '@viewer';
@@ -929,15 +946,15 @@ export default function VideoFeedScreen() {
                                   <View style={{ flex: 1 }}>
                                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                                       <TouchableOpacity onPress={() => handleUserProfilePress(reply)}>
-                                        <Text style={[styles.commentUser, { fontSize: 11 }]}>{rUser}</Text>
+                                        <Text style={[styles.commentUser, { fontSize: 11 }]}>{String(rUser)}</Text>
                                       </TouchableOpacity>
-                                      <Text style={styles.replyToBadge}>↳ Replying to {userHandle}</Text>
+                                      <Text style={styles.replyToBadge}>{`↳ Replying to ${userHandle}`}</Text>
                                     </View>
 
-                                    <Text style={[styles.commentText, { fontSize: 12 }]}>{reply.content || reply.text || ''}</Text>
+                                    <Text style={[styles.commentText, { fontSize: 12 }]}>{String(reply.content || reply.text || '')}</Text>
 
                                     <View style={styles.commentActionBar}>
-                                      <Text style={styles.actionTime}>{rTime}</Text>
+                                      <Text style={styles.actionTime}>{String(rTime)}</Text>
 
                                       <TouchableOpacity onPress={() => openCommentOptionsMenu(reply)} style={styles.actionBtn}>
                                         <Ionicons name="ellipsis-horizontal" size={12} color="#94A3B8" />
@@ -951,7 +968,7 @@ export default function VideoFeedScreen() {
 
                                   <TouchableOpacity onPress={() => toggleLikeComment(reply.id)} style={styles.likeHeartCol}>
                                     <Ionicons name={rLikeState.liked ? "heart" : "heart-outline"} size={14} color={rLikeState.liked ? "#EF4444" : "#64748B"} />
-                                    {rLikeState.count > 0 && <Text style={styles.likeCountTxt}>{rLikeState.count}</Text>}
+                                    {Boolean(rLikeState.count > 0) ? <Text style={styles.likeCountTxt}>{String(rLikeState.count)}</Text> : null}
                                   </TouchableOpacity>
                                 </View>
                               );
@@ -966,7 +983,7 @@ export default function VideoFeedScreen() {
                               <Text style={{ color: '#38BDF8', fontSize: 10, fontWeight: '700' }}>Hide replies</Text>
                             </TouchableOpacity>
                           </View>
-                        )}
+                        ) : null}
                       </View>
                     );
                   }}
@@ -975,26 +992,29 @@ export default function VideoFeedScreen() {
             })()}
 
             {/* Replying Banner Bar */}
-            {replyToComment && (
+            {Boolean(replyToComment) ? (
               <View style={styles.replyingBar}>
-                <Text style={styles.replyingTxt}>Replying to <Text style={{ color: '#C084FC', fontWeight: 'bold' }}>{replyToComment.user}</Text></Text>
+                <Text style={styles.replyingTxt}>
+                  {`Replying to `}
+                  <Text style={{ color: '#C084FC', fontWeight: 'bold' }}>{String(replyToComment?.user)}</Text>
+                </Text>
                 <TouchableOpacity onPress={() => setReplyToComment(null)}>
                   <Ionicons name="close-circle" size={18} color="#94A3B8" />
                 </TouchableOpacity>
               </View>
-            )}
+            ) : null}
 
             {/* Attached Media Signal Preview Bar */}
-            {attachmentMedia && (
+            {Boolean(attachmentMedia) ? (
               <View style={styles.attachmentPreviewBar}>
                 <Text style={styles.attachmentPreviewTxt}>
-                  {attachmentMedia.type === 'image' ? '📸 Photo Attached' : (attachmentMedia.type === 'video' ? '📹 Video Attached (Max 10s)' : '🎙️ Voice Signal Attached')}
+                  {attachmentMedia?.type === 'image' ? '📸 Photo Attached' : (attachmentMedia?.type === 'video' ? '📹 Video Attached (Max 10s)' : '🎙️ Voice Signal Attached')}
                 </Text>
                 <TouchableOpacity onPress={() => setAttachmentMedia(null)}>
                   <Ionicons name="close-circle" size={16} color="#F43F5E" />
                 </TouchableOpacity>
               </View>
-            )}
+            ) : null}
 
             {/* Compact Input Row with Right Side Attachment Buttons */}
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -1059,6 +1079,19 @@ const styles = StyleSheet.create({
   feedWrapper: {
     flex: 1,
     backgroundColor: '#000',
+  },
+  desktopFeedWrapper: {
+    maxWidth: 480,
+    width: '100%',
+    alignSelf: 'center',
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#1E1E2E',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.6,
+    shadowRadius: 16,
   },
   emptyContainer: {
     height: 800,

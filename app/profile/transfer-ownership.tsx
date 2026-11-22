@@ -290,7 +290,7 @@ export default function TransferOwnershipScreen() {
       return;
     }
 
-    if (ownerOtpInput.trim() === ownerGeneratedOtp || ownerOtpInput.trim() === '123456') {
+    if (ownerGeneratedOtp && ownerOtpInput.trim() === ownerGeneratedOtp) {
       setOwnerOtpVerified(true);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       Alert.alert('✅ OWNER VERIFIED', 'Logged-in Owner email identity successfully confirmed!');
@@ -358,7 +358,7 @@ export default function TransferOwnershipScreen() {
       return;
     }
 
-    if (recipEmailOtpInput.trim() === recipEmailGeneratedOtp || recipEmailOtpInput.trim() === '123456') {
+    if (recipEmailGeneratedOtp && recipEmailOtpInput.trim() === recipEmailGeneratedOtp) {
       setRecipEmailOtpVerified(true);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       Alert.alert('✅ RECIPIENT EMAIL VERIFIED', 'New Recipient email identity successfully confirmed!');
@@ -410,7 +410,7 @@ export default function TransferOwnershipScreen() {
       return;
     }
 
-    if (recipOtpInput.trim() === recipGeneratedOtp || recipOtpInput.trim() === '123456') {
+    if (recipGeneratedOtp && recipOtpInput.trim() === recipGeneratedOtp) {
       setRecipOtpVerified(true);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       Alert.alert('✅ RECIPIENT MOBILE VERIFIED', 'New Recipient mobile identity successfully confirmed!');

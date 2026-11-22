@@ -15,6 +15,7 @@ import SubscribeButton from './SubscribeButton';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useResponsive } from '../hooks/useResponsive';
 
 const { width } = Dimensions.get('window');
 
@@ -107,6 +108,7 @@ const PostCard = memo(({ item, isPlaying, onUploaderPress, onCardPress, currentU
   const isFocused = useIsFocused();
   const { isFollowing, toggleFollow } = useFollow(currentUserId, item?.user_id);
   const [isLiked, setIsLiked] = useState(false);
+  const { isDesktop } = useResponsive();
   const [likes, setLikes] = useState(parseInt(item?.likes_count) || 0);
   const [commentsCount] = useState(parseInt(item?.comments_count) || 0);
   const [optionsModal, setOptionsModal] = useState(false);
@@ -336,7 +338,12 @@ const PostCard = memo(({ item, isPlaying, onUploaderPress, onCardPress, currentU
   const calculatedAspectRatio = isNeural ? 1 : (isPhoto ? (4 / 5) : mediaAspectRatio);
 
   return (
-    <View style={[styles.vxMainCard, isNeural && styles.neuralCardBorder, isLight && { backgroundColor: '#fff' }]}>
+    <View style={[
+      styles.vxMainCard,
+      isDesktop && styles.desktopVxMainCard,
+      isNeural && styles.neuralCardBorder,
+      isLight && { backgroundColor: '#fff' }
+    ]}>
       <View style={[styles.vxCardHeader, isLight && { borderBottomWidth: 0.5, borderBottomColor: '#EEE' }]}>
         <TouchableOpacity onPress={handleUploaderClick} style={styles.vxHeaderLeft}>
           <Image source={{ uri: creatorAvatar }} style={[styles.vxAvatar, isLight && { borderColor: '#EEE' }]} />
@@ -888,6 +895,15 @@ const styles = StyleSheet.create({
     marginHorizontal: 0,
     marginBottom: 12,
     overflow: 'hidden',
+  },
+  desktopVxMainCard: {
+    flex: 1,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#1A1A24',
+    overflow: 'hidden',
+    backgroundColor: '#0A0A10',
+    marginBottom: 0,
   },
   cardSeparatorLine: {
     height: 1,

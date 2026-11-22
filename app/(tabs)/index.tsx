@@ -14,6 +14,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NeuralAuditModal } from '../../components/moderation/NeuralAuditModal';
 import CreateMenuHoloOrbit from '../../components/CreateMenuHoloOrbit';
 import { TopHeaderDiamondBadge } from '../../components/TopHeaderDiamondBadge';
+import { useResponsive } from '../../hooks/useResponsive';
+import { ResponsiveContainer } from '../../components/ResponsiveContainer';
+import { InstagramHeaderLogo } from '../../components/voexiHeaderLogo';
 
 const isReelPost = (p: any): boolean => {
   if (!p) return true;
@@ -127,17 +130,19 @@ const getValidAvatarUrl = (rawUrl?: string | null, name: string = 'User'): strin
 export default function HomeScreen () {
   const router = useRouter();
   const { isLight } = useTheme();
+  const { numColumns, isDesktop } = useResponsive();
   const insets = useSafeAreaInsets();
 
   const [posts, setPosts] = useState<any[]>([]);
   const [creators, setCreators] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [liveBroadcasts, setLiveBroadcasts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [hasMyStory, setHasMyStory] = useState(false);
   const [auditTarget, setAuditTarget] = useState<any>(null);
-  const [activeCategory, setActiveCategory] = useState('DISCOVER');
+  const [activeCategory, setActiveCategory] = useState('FOR YOU');
   const [showCreateMenu, setShowCreateMenu] = useState(false);
 
   const fetchData = async (isRefreshing = false) => {
@@ -158,10 +163,8 @@ export default function HomeScreen () {
       // Local cache load optional
     }
 
-    if (!isRefreshing && posts.length === 0) setLoading(true);
-
     try {
-      // 2. PARALLEL NETWORK FETCH (ALL REQUESTS FIRE AT THE SAME TIME)
+      // 2. PARALLEL FAST NETWORK FETCH (Ultra-Fast 300ms Local Server Timeout)
       const [sessionRes, supabasePostsRes, penDriveRes, creatorsRes, s2ProfilesRes] = await Promise.allSettled([
         supabase.auth.getSession(),
         supabase
@@ -172,9 +175,9 @@ export default function HomeScreen () {
           .not('post_type', 'ilike', '%story%')
           .order('created_at', { ascending: false })
           .limit(50),
-        fetchWithTimeout('http://192.168.31.39:8080/files.json', 1200),
+        fetchWithTimeout('http://192.168.31.39:8080/files.json', 300),
         supabase.from('profiles').select('*').limit(15),
-        fetchWithTimeout('http://192.168.31.39:8080/profiles.json', 1200),
+        fetchWithTimeout('http://192.168.31.39:8080/profiles.json', 300),
       ]);
 
       const session = sessionRes.status === 'fulfilled' ? sessionRes.value.data.session : null;
@@ -207,7 +210,19 @@ export default function HomeScreen () {
       if (penDriveRes.status === 'fulfilled' && penDriveRes.value && penDriveRes.value.ok) {
         try {
           const allPenFiles = await penDriveRes.value.json();
-          if (Array.isArray(allPenFiles)) penDriveFiles = allPenFiles;
+          if (Array.isArray(allPenFiles)) {
+            penDriveFiles = allPenFiles.map((f: any) => {
+              const fileUrl = f.media_url || f.video_url || f.url || `http://192.168.31.39:8080${f.path || f.uri || ('/uploads/' + (f.filename || ''))}`;
+              return {
+                ...f,
+                id: f.id || f.filename || `pen_${Math.random()}`,
+                media_url: fileUrl,
+                video_url: fileUrl,
+                thumbnail_url: f.thumbnail_url || fileUrl,
+                profiles: f.profiles || { username: f.uploader || 'pen_drive_station', channel_name: f.uploader || 'Pen Drive Media', avatar_url: '' }
+              };
+            });
+          }
         } catch {
           // PenDrive JSON parse optional
         }
@@ -248,11 +263,11 @@ export default function HomeScreen () {
         // Local uploads fetch optional
       }
 
-      // Combine Supabase DB Posts FIRST, then Local Uploads, then PenDrive
+      // Combine Local Uploads FIRST, then Supabase DB Posts, then PenDrive
       const existingUrls = new Set(supabasePosts.map((p: any) => p.media_url || p.video_url));
       const newPenDrivePosts = penDriveFiles.filter((p: any) => !existingUrls.has(p.media_url || p.video_url));
 
-      const rawCombined = [...supabasePosts, ...localUploadsFiltered, ...newPenDrivePosts];
+      const rawCombined = [...localUploadsFiltered, ...supabasePosts, ...newPenDrivePosts];
       const seenUrls = new Set<string>();
 
       const allCombinedPosts = rawCombined.filter(p => {
@@ -361,9 +376,9 @@ export default function HomeScreen () {
           }
         }
 
-        // Also check Server 2 active stories
+        // Also check Server 2 active stories (with 300ms fast timeout)
         try {
-          const s2Res = await fetch('http://192.168.31.39:8080/files.json').then(r => r.json()).catch(() => null);
+          const s2Res = await fetchWithTimeout('http://192.168.31.39:8080/files.json', 300).then(r => r ? r.json() : null).catch(() => null);
           if (Array.isArray(s2Res)) {
             s2Res.forEach((f: any) => {
               const pt = (f.post_type || f.category || '').toLowerCase();
@@ -407,6 +422,39 @@ export default function HomeScreen () {
         });
         setCreators(realUsers);
       }
+
+      // Fetch Active Live Broadcasts (Supabase Cloud + Local Server 2 Dual Sync)
+      let allLiveBroadcasts: any[] = [];
+      try {
+        const { data: activeLive } = await supabase
+          .from('live_broadcasts')
+          .select('*, profiles:user_id(*)')
+          .in('status', ['live', 'preparing'])
+          .order('created_at', { ascending: false });
+
+        if (activeLive) {
+          allLiveBroadcasts = activeLive;
+        }
+      } catch (liveErr) {}
+
+      // Dual-Sync Merge with Local Server 2 Active Live Streams
+      try {
+        const s2LiveRes = await fetchWithTimeout(`${getLocalMediaServerUrl()}/api/live_broadcasts`, 1200);
+        if (s2LiveRes && s2LiveRes.ok) {
+          const s2LiveJson = await s2LiveRes.json();
+          const s2List = s2LiveJson?.broadcasts || [];
+          if (Array.isArray(s2List)) {
+            s2List.forEach((s2Item: any) => {
+              if (!allLiveBroadcasts.some(b => b.stream_key === s2Item.stream_key)) {
+                allLiveBroadcasts.push(s2Item);
+              }
+            });
+          }
+        }
+      } catch (e) {}
+
+      setLiveBroadcasts(allLiveBroadcasts);
+
     } catch (e) {
       console.error("Home Fetch Error:", e);
     } finally {
@@ -415,7 +463,30 @@ export default function HomeScreen () {
     }
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    fetchData();
+
+    const channelName = 'public_live_broadcasts_realtime_v2';
+    try {
+      const activeChannels = supabase.getChannels();
+      const duplicate = activeChannels.find(c => c.topic === `realtime:${channelName}`);
+      if (duplicate) {
+        supabase.removeChannel(duplicate);
+      }
+    } catch (e) {}
+
+    const liveChannel = supabase
+      .channel(channelName)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'live_broadcasts' }, () => {
+        fetchData(true);
+      });
+
+    liveChannel.subscribe();
+
+    return () => {
+      try { supabase.removeChannel(liveChannel); } catch (e) {}
+    };
+  }, []);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -461,7 +532,7 @@ export default function HomeScreen () {
   );
 
   const filteredPosts = useMemo(() => {
-    if (!activeCategory || activeCategory === 'DISCOVER') return posts;
+    if (!activeCategory || activeCategory === 'FOR YOU' || activeCategory === 'DISCOVER') return posts;
     return posts.filter(p => {
       const pt = String(p.post_type || p.media_type || '').toUpperCase();
       const cat = String(p.category || p.title || p.description || '').toUpperCase();
@@ -487,59 +558,65 @@ export default function HomeScreen () {
       {/* 1. TOP HEADER */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 10) + 4 }, isLight && { backgroundColor: '#fff', borderBottomColor: '#EEE' }]}>
          <View style={styles.headerTop}>
-            <TouchableOpacity onPress={() => router.push('/branding')} style={styles.brandContainer}>
-              <VoexiIcon size={32} isLight={isLight} />
-              <Text style={[styles.premiumBrandText, { color: isLight ? '#000' : '#fff' }]}>VOEXI</Text>
+            <TouchableOpacity onPress={() => router.push('/branding')} style={styles.brandContainer} activeOpacity={0.8}>
+               <VoexiIcon size={26} isLight={isLight} />
+               <InstagramHeaderLogo isLight={isLight} />
             </TouchableOpacity>
 
             <View style={styles.headerRight}>
                <TopHeaderDiamondBadge isLight={isLight} />
 
-               <TouchableOpacity onPress={() => router.push('/search-portal')} style={styles.youtubeSearchBtn}>
-                  <Feather name="search" size={20} color={isLight ? '#000' : '#fff'} />
-               </TouchableOpacity>
-
                <TouchableOpacity onPress={() => router.push('/notifications')} style={styles.headerActionBtn}>
-                  <Ionicons name="notifications-outline" size={22} color={isLight ? '#000' : '#fff'} />
+                  <Ionicons name="notifications-outline" size={20} color={isLight ? '#000' : '#fff'} />
                </TouchableOpacity>
 
-               <TouchableOpacity onPress={() => router.replace('/(tabs)/menu')} style={styles.headerMenuBtn}>
-                  <Ionicons name="grid-outline" size={18} color="#FFD700" />
+               <TouchableOpacity onPress={() => router.push('/search-portal')} style={styles.youtubeSearchBtn}>
+                  <Feather name="search" size={18} color={isLight ? '#000' : '#fff'} />
                </TouchableOpacity>
             </View>
          </View>
       </View>
 
       <FlatList
+        key={`home_feed_grid_${numColumns}`}
         data={filteredPosts}
+        numColumns={numColumns}
+        columnWrapperStyle={numColumns > 1 ? styles.columnWrapper : undefined}
         keyExtractor={(item, index) => (item.id ? String(item.id) : `post_${index}`)}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
         removeClippedSubviews={Platform.OS === 'android'}
-        maxToRenderPerBatch={2}
-        windowSize={3}
-        initialNumToRender={2}
+        maxToRenderPerBatch={isDesktop ? 6 : 2}
+        windowSize={isDesktop ? 5 : 3}
+        initialNumToRender={isDesktop ? 6 : 2}
         updateCellsBatchingPeriod={50}
-        contentContainerStyle={{ paddingBottom: 90 }}
+        contentContainerStyle={[
+          { paddingBottom: 90 },
+          isDesktop && { maxWidth: 1400, width: '100%', alignSelf: 'center' }
+        ]}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={VOEXITheme.colors.primary} />
         }
         ListEmptyComponent={
-          !loading ? (
-            <View style={{ padding: 40, alignItems: 'center' }}>
-              <Ionicons name="planet-outline" size={60} color="#222" />
-              <Text style={{ color: '#444', marginTop: 15, fontWeight: 'bold' }}>NO POSTS FOUND</Text>
-            </View>
-          ) : (
-            <ActivityIndicator size="large" color={VOEXITheme.colors.primary} style={{ marginTop: 50 }} />
-          )
+          <View style={{ padding: 40, alignItems: 'center' }}>
+            <Ionicons name="planet-outline" size={60} color="#222" />
+            <Text style={{ color: '#444', marginTop: 15, fontWeight: 'bold' }}>NO POSTS FOUND</Text>
+          </View>
         }
         ListHeaderComponent={
           <View>
-            {/* 2. CATEGORIES PILLS */}
+            {/* 2. CATEGORIES PILLS WITH 3-LINE HAMBURGER MENU BUTTON ON THE LEFT */}
             <View style={styles.categoriesRow}>
-               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 15, alignItems: 'center' }}>
-                  {['DISCOVER', 'WRITING', 'MUSIC', 'GAMING', 'TECH', 'NEWS', 'LIFESTYLE'].map((cat) => {
+               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12, alignItems: 'center' }}>
+                  <TouchableOpacity
+                    onPress={() => router.push('/(tabs)/menu')}
+                    style={[styles.hamburgerCatBtn, isLight && { backgroundColor: '#F5F5F5', borderColor: '#EEE' }]}
+                    activeOpacity={0.8}
+                  >
+                     <Ionicons name="menu" size={20} color="#FFD700" />
+                  </TouchableOpacity>
+
+                  {['FOR YOU', 'DISCOVER', 'WRITING', 'MUSIC', 'GAMING', 'TECH', 'LIFESTYLE'].map((cat) => {
                      const isSelected = activeCategory === cat;
                      return (
                        <TouchableOpacity
@@ -589,6 +666,33 @@ export default function HomeScreen () {
                      </View>
                      <Text style={[styles.storyUser, isLight && { color: '#666' }]} numberOfLines={1}>My Station</Text>
                   </TouchableOpacity>
+
+                  {/* ACTIVE LIVE BROADCASTS RAIL */}
+                  {liveBroadcasts.map((live, idx) => {
+                    const liveProf = live.profiles || {};
+                    const broadcasterName = liveProf.channel_name || liveProf.username || 'Broadcaster';
+                    const broadcasterAvatar = getValidAvatarUrl(liveProf.custom_logo_url || liveProf.avatar_url, broadcasterName);
+                    return (
+                      <TouchableOpacity
+                        key={live.id || live.stream_key || `live_${idx}`}
+                        style={styles.storyItem}
+                        onPress={() => router.push({ pathname: '/studio/live', params: { streamKey: live.stream_key, title: live.title } })}
+                        activeOpacity={0.8}
+                      >
+                         <View style={styles.storyOuterRing}>
+                            <LinearGradient
+                               colors={['#FF0055', '#FF4500', '#FF0055']}
+                               style={styles.storyGradientRing}
+                            >
+                               <View style={[styles.storyInnerContent, isLight && { backgroundColor: '#fff' }]}>
+                                  <Image source={{ uri: broadcasterAvatar }} style={styles.storyAvatar} />
+                               </View>
+                            </LinearGradient>
+                         </View>
+                         <Text style={[styles.storyUser, { color: '#FF0055', fontWeight: '900' }]} numberOfLines={1}>🔴 LIVE</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
 
                   {creators.map((c, idx) => (
                     <TouchableOpacity
@@ -658,10 +762,15 @@ export default function HomeScreen () {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, width: '100%', maxWidth: 640, alignSelf: 'center', backgroundColor: '#000' },
+  container: { flex: 1, width: '100%', backgroundColor: '#000' },
+  columnWrapper: {
+    gap: 16,
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
   header: {
-    paddingHorizontal: 12,
-    paddingBottom: 8,
+    paddingHorizontal: 8,
+    paddingBottom: 6,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.08)',
     backgroundColor: '#000000',
@@ -672,43 +781,43 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     width: '100%',
   },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    flexShrink: 1,
+  },
   brandContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-  },
-  premiumBrandText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '900',
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
+    gap: 3,
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 4,
+    flexShrink: 0,
   },
   youtubeSearchBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   headerActionBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   headerMenuBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: 'rgba(255, 215, 0, 0.12)',
     justifyContent: 'center',
     alignItems: 'center',
@@ -716,6 +825,17 @@ const styles = StyleSheet.create({
   categoriesRow: {
     height: 55,
     paddingVertical: 10,
+  },
+  hamburgerCatBtn: {
+    width: 36,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 215, 0, 0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 215, 0, 0.3)',
   },
   catPill: {
     paddingHorizontal: 16,

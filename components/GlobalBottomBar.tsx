@@ -5,6 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, usePathname } from 'expo-router';
 import { VOEXITheme } from '../constants/theme';
 import { useTheme } from '../hooks/useTheme';
+import { useResponsive } from '../hooks/useResponsive';
 import * as Haptics from 'expo-haptics';
 
 interface GlobalBottomBarProps {
@@ -14,6 +15,7 @@ interface GlobalBottomBarProps {
 
 /**
  * Global Bottom Navigation Bar (CustomTabBar) with Active Tab Yellow Glowing Outline
+ * Adaptive for Mobile, Tablet, PC & TV (Clamps max width on large screens)
  * Structure: HOME -> FEED -> [FLOATING CENTER +] -> MESSAGE -> PROFILE
  */
 export const GlobalBottomBar: React.FC<GlobalBottomBarProps> = ({
@@ -23,6 +25,7 @@ export const GlobalBottomBar: React.FC<GlobalBottomBarProps> = ({
   const router = useRouter();
   const pathname = usePathname();
   const { isLight: globalIsLight } = useTheme();
+  const { isDesktop } = useResponsive();
 
   // Hide on video-feed
   if (pathname.includes('video-feed')) {
@@ -50,7 +53,7 @@ export const GlobalBottomBar: React.FC<GlobalBottomBarProps> = ({
     { key: 'home', label: 'Home', icon: 'home', iconOutline: 'home-outline', lib: Ionicons, route: '/(tabs)' },
     { key: 'feed', label: 'Feed', icon: 'play-box-multiple', iconOutline: 'play-box-multiple-outline', lib: MaterialCommunityIcons, route: '/(tabs)/video-feed' },
     { key: 'upload', label: '', isCenter: true },
-    { key: 'message', label: 'Message', icon: 'chatbubbles', iconOutline: 'chatbubbles-outline', lib: Ionicons, route: '/menu/chat' },
+    { key: 'message', label: 'Message', icon: 'chatbubbles', iconOutline: 'chatbubbles-outline', lib: Ionicons, route: '/(tabs)/chat' },
     { key: 'profile', label: 'Profile', icon: 'person', iconOutline: 'person-outline', lib: Ionicons, route: '/(tabs)/profile' },
   ];
 
@@ -58,77 +61,79 @@ export const GlobalBottomBar: React.FC<GlobalBottomBarProps> = ({
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (tab.route) {
       if (pathname === tab.route || (pathname === '/' && tab.key === 'home')) return;
-      if (tab.key === 'message') {
-        router.push(tab.route as any);
-      } else {
-        router.replace(tab.route as any);
-      }
+      router.replace(tab.route as any);
     }
   };
 
   return (
-    <View style={[styles.tabBarContainer, isLight && styles.lightTabBarContainer]}>
-      {tabs.map((tab) => {
-        const isActive = currentActive === tab.key;
+    <View style={styles.outerWrapper}>
+      <View style={[
+        styles.tabBarContainer,
+        isLight && styles.lightTabBarContainer,
+        isDesktop && styles.desktopTabBarContainer
+      ]}>
+        {tabs.map((tab) => {
+          const isActive = currentActive === tab.key;
 
-        // CENTER FLOATING "+" ACTION BUTTON (48x48 circular button with purple gradient, elevated -20px)
-        if (tab.isCenter) {
+          // CENTER FLOATING "+" ACTION BUTTON (48x48 circular button with purple gradient, elevated -20px)
+          if (tab.isCenter) {
+            return (
+              <TouchableOpacity
+                key="center_plus"
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  if (onOpenCreateMenu) {
+                    onOpenCreateMenu();
+                  } else {
+                    router.push('/upload');
+                  }
+                }}
+                style={styles.centerTabItem}
+                activeOpacity={0.8}
+              >
+                <LinearGradient
+                  colors={['#A855F7', '#4C1D95']}
+                  style={styles.centerPlusButton}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                >
+                  <Ionicons name="add" size={28} color="#FFFFFF" />
+                </LinearGradient>
+              </TouchableOpacity>
+            );
+          }
+
+          const IconComp = tab.lib as any;
+          const iconName = isActive ? tab.icon : tab.iconOutline;
+
           return (
             <TouchableOpacity
-              key="center_plus"
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                if (onOpenCreateMenu) {
-                  onOpenCreateMenu();
-                } else {
-                  router.push('/upload');
-                }
-              }}
-              style={styles.centerTabItem}
-              activeOpacity={0.8}
+              key={tab.key}
+              onPress={() => handleTabPress(tab)}
+              style={styles.tabItem}
+              activeOpacity={0.7}
             >
-              <LinearGradient
-                colors={['#A855F7', '#4C1D95']}
-                style={styles.centerPlusButton}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
+              <View style={[styles.iconBox, isActive && styles.activeYellowOutline]}>
+                <IconComp
+                  name={iconName as any}
+                  size={20}
+                  color={isActive ? '#FFD700' : (isLight ? '#555555' : '#888888')}
+                />
+              </View>
+              <Text
+                style={[
+                  styles.tabLabel,
+                  { color: isActive ? '#FFD700' : (isLight ? '#555555' : '#888888') },
+                  isActive && styles.activeTabLabel,
+                ]}
+                numberOfLines={1}
               >
-                <Ionicons name="add" size={28} color="#FFFFFF" />
-              </LinearGradient>
+                {tab.label}
+              </Text>
             </TouchableOpacity>
           );
-        }
-
-        const IconComp = tab.lib as any;
-        const iconName = isActive ? tab.icon : tab.iconOutline;
-
-        return (
-          <TouchableOpacity
-            key={tab.key}
-            onPress={() => handleTabPress(tab)}
-            style={styles.tabItem}
-            activeOpacity={0.7}
-          >
-            <View style={[styles.iconBox, isActive && styles.activeYellowOutline]}>
-              <IconComp
-                name={iconName as any}
-                size={20}
-                color={isActive ? '#FFD700' : (isLight ? '#555555' : '#888888')}
-              />
-            </View>
-            <Text
-              style={[
-                styles.tabLabel,
-                { color: isActive ? '#FFD700' : (isLight ? '#555555' : '#888888') },
-                isActive && styles.activeTabLabel,
-              ]}
-              numberOfLines={1}
-            >
-              {tab.label}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
+        })}
+      </View>
     </View>
   );
 };
@@ -139,11 +144,17 @@ export const CustomTabBar = GlobalBottomBar;
 export default GlobalBottomBar;
 
 const styles = StyleSheet.create({
-  tabBarContainer: {
+  outerWrapper: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
+    alignItems: 'center',
+    zIndex: 999999,
+    pointerEvents: 'box-none',
+  },
+  tabBarContainer: {
+    width: '100%',
     height: Platform.OS === 'android' ? 68 : 84,
     backgroundColor: '#000000',
     borderTopWidth: 1,
@@ -154,7 +165,19 @@ const styles = StyleSheet.create({
     paddingBottom: Platform.OS === 'android' ? 8 : 22,
     paddingTop: 6,
     elevation: 30,
-    zIndex: 999999,
+  },
+  desktopTabBarContainer: {
+    maxWidth: 640,
+    bottom: 12,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: '#222233',
+    height: 70,
+    paddingBottom: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
   },
   lightTabBarContainer: {
     backgroundColor: '#FFFFFF',

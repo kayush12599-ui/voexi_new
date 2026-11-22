@@ -1,24 +1,58 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { VOEXITheme } from '../../constants/theme';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { MEDIA_SERVER_URL } from '../../constants/config';
+
+const LOCAL_SERVER_URL = MEDIA_SERVER_URL;
 
 export default function CommunityGuidelines() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [serverGuidelines, setServerGuidelines] = useState<any>(null);
 
-  const GUIDELINES = [
+  useEffect(() => {
+    loadServerGuidelines();
+  }, []);
+
+  const loadServerGuidelines = async () => {
+    // 1. Instant Cache Restore
+    try {
+      const cached = await AsyncStorage.getItem('@cached_community_guidelines_data');
+      if (cached) setServerGuidelines(JSON.parse(cached));
+    } catch (e) {}
+
+    // 2. Fetch Live Updates from Local Server 2
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 1500);
+      const res = await fetch(`${LOCAL_SERVER_URL}/app-info.json`, { signal: controller.signal }).catch(() => null);
+      clearTimeout(timer);
+
+      if (res && res.ok) {
+        const data = await res.json();
+        const gData = data?.layer2_guidelines || data?.community_guidelines_data || null;
+        if (gData) {
+          setServerGuidelines(gData);
+          await AsyncStorage.setItem('@cached_community_guidelines_data', JSON.stringify(gData));
+        }
+      }
+    } catch (e) {}
+  };
+
+  const DEFAULT_GUIDELINES = [
     {
       title: "Content Safety",
       icon: "shield-checkmark",
       rules: [
-        "Do not upload sexually explicit or adult content.",
-        "Violence and graphic content that encourages harm is strictly prohibited.",
-        "Illegal acts, including drug use or promotion, are not allowed."
+        serverGuidelines?.rule_1 || "Do not upload sexually explicit or adult content.",
+        serverGuidelines?.rule_2 || "Violence and graphic content that encourages harm is strictly prohibited.",
+        serverGuidelines?.rule_3 || "Illegal acts, including drug use or promotion, are not allowed."
       ]
     },
     {
@@ -76,13 +110,18 @@ export default function CommunityGuidelines() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>COMMUNITY GUIDELINES</Text>
+        <TouchableOpacity onPress={() => router.back()} style={{ position: 'absolute', left: 20 }}>
+          <Ionicons name="chevron-back" size={26} color="#fff" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>{serverGuidelines?.title || 'COMMUNITY GUIDELINES'}</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.intro}>VOEXI is a platform for creativity and signal sharing. To maintain the integrity of our network, all broadcasters must adhere to these rules.</Text>
+        <Text style={styles.intro}>
+          VOEXI is a platform for creativity and signal sharing. To maintain the integrity of our network, all broadcasters must adhere to these rules.
+        </Text>
 
-        {GUIDELINES.map((section, idx) => (
+        {DEFAULT_GUIDELINES.map((section, idx) => (
           <View key={idx} style={styles.section}>
             <View style={styles.sectionHeader}>
               <Ionicons name={section.icon as any} size={20} color={VOEXITheme.colors.primary} />
@@ -119,7 +158,7 @@ const sectionStyles = StyleSheet.create({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
-  header: { padding: 25, borderBottomWidth: 1, borderBottomColor: '#111', alignItems: 'center' },
+  header: { padding: 25, borderBottomWidth: 1, borderBottomColor: '#111', alignItems: 'center', flexDirection: 'row', justifyContent: 'center' },
   headerTitle: { color: '#fff', fontSize: 14, fontWeight: '900', letterSpacing: 3 },
   content: { padding: 25 },
   intro: { color: '#666', fontSize: 13, lineHeight: 22, marginBottom: 30, textAlign: 'center' },

@@ -12,8 +12,8 @@ expo-env.d.ts
 
 # Build directories & Gradle outputs
 build/
-android/
-ios/
+/android
+/ios
 .gradle/
 .kotlin/
 *.dex

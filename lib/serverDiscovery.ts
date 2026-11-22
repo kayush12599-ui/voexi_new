@@ -5,13 +5,22 @@ import { SERVER_IP } from '../constants/config';
 let activeMediaServerUrl = `http://${SERVER_IP}:8080`;
 let activeAvatarServerUrl = `http://${SERVER_IP}:8085`;
 
+const getDynamicWebHost = (): string => {
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.hostname) {
+    const host = window.location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1' || host.startsWith('192.168.')) {
+      return host;
+    }
+  }
+  return SERVER_IP;
+};
+
 const CANDIDATE_IPS = [
-  SERVER_IP,
+  getDynamicWebHost(),
   'localhost',
   '127.0.0.1',
+  SERVER_IP,
   '10.0.2.2', // Android Emulator Host
-  '192.168.1.100',
-  '192.168.0.100'
 ];
 
 export const ServerDiscovery = {
@@ -19,6 +28,12 @@ export const ServerDiscovery = {
    * Returns current active Media Server URL (Port 8080)
    */
   getMediaServerUrl(): string {
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.hostname) {
+      const host = window.location.hostname;
+      if (host === 'localhost' || host === '127.0.0.1') {
+        return `http://${host}:8080`;
+      }
+    }
     return activeMediaServerUrl;
   },
 
@@ -26,6 +41,12 @@ export const ServerDiscovery = {
    * Returns current active Avatar Server URL (Port 8085)
    */
   getAvatarServerUrl(): string {
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.hostname) {
+      const host = window.location.hostname;
+      if (host === 'localhost' || host === '127.0.0.1') {
+        return `http://${host}:8085`;
+      }
+    }
     return activeAvatarServerUrl;
   },
 
@@ -35,6 +56,15 @@ export const ServerDiscovery = {
    */
   async discoverServers(): Promise<{ mediaUrl: string; avatarUrl: string; isOnline: boolean }> {
     try {
+      if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.hostname) {
+        const host = window.location.hostname;
+        if (host === 'localhost' || host === '127.0.0.1') {
+          activeMediaServerUrl = `http://${host}:8080`;
+          activeAvatarServerUrl = `http://${host}:8085`;
+          return { mediaUrl: activeMediaServerUrl, avatarUrl: activeAvatarServerUrl, isOnline: true };
+        }
+      }
+
       // Check cached working host first
       const cachedHost = await AsyncStorage.getItem('@active_server_host');
       if (cachedHost) {

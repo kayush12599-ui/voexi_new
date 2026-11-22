@@ -423,21 +423,21 @@ const VideoFeedItem = memo(({ item, isActive, isScreenFocused, itemHeight, curre
 
       <LinearGradient colors={['rgba(0,0,0,0.1)', 'transparent', 'rgba(0,0,0,0.85)']} style={StyleSheet.absoluteFill} pointerEvents="none" />
 
-      {autoScrollEnabled && !ghostMode && (
+      {Boolean(autoScrollEnabled && !ghostMode) ? (
         <View style={styles.autoScrollBadge}>
           <Ionicons name="repeat" size={12} color="#00F2FE" />
           <Text style={styles.autoScrollBadgeText}>AUTO-SCROLL ON</Text>
         </View>
-      )}
+      ) : null}
 
-      {playbackSpeed !== 1.0 && !ghostMode && (
+      {Boolean(playbackSpeed !== 1.0 && !ghostMode) ? (
         <View style={[styles.autoScrollBadge, { top: autoScrollEnabled ? 85 : 50, backgroundColor: 'rgba(255, 215, 0, 0.2)', borderColor: '#FFD700' }]}>
           <Ionicons name="flash" size={12} color="#FFD700" />
-          <Text style={[styles.autoScrollBadgeText, { color: '#FFD700' }]}>{playbackSpeed}x SPEED</Text>
+          <Text style={[styles.autoScrollBadgeText, { color: '#FFD700' }]}>{String(playbackSpeed)}x SPEED</Text>
         </View>
-      )}
+      ) : null}
 
-      {ghostMode && (
+      {Boolean(ghostMode) ? (
         <TouchableOpacity
           style={styles.ghostExitPill}
           onPress={() => {
@@ -449,7 +449,7 @@ const VideoFeedItem = memo(({ item, isActive, isScreenFocused, itemHeight, curre
           <Ionicons name="eye-off" size={14} color="#00F2FE" />
           <Text style={styles.ghostExitText}>GHOST MODE ACTIVE • TAP SCREEN TO EXIT</Text>
         </TouchableOpacity>
-      )}
+      ) : null}
 
       <View style={[styles.overlay, { paddingBottom: overlayBottomPadding }, ghostMode && { opacity: 0 }]} pointerEvents={ghostMode ? 'none' : 'auto'}>
         <View style={styles.bottomInfo}>
@@ -464,21 +464,21 @@ const VideoFeedItem = memo(({ item, isActive, isScreenFocused, itemHeight, curre
                      <Image source={{ uri: c.avatar_url || 'https://via.placeholder.com/100' }} style={[styles.miniAvatar, { borderWidth: 1.5, borderColor: '#A855F7' }]} />
                   </TouchableOpacity>
                 ))
-              ) : (item.collaborator_avatar || item.collaborator_name) && (
+              ) : Boolean(item.collaborator_avatar || item.collaborator_name) ? (
                 <TouchableOpacity onPress={() => item.collaborator_id && router.push(`/user/${item.collaborator_id}`)} style={{ marginLeft: -12 }}>
                    <Image source={{ uri: item.collaborator_avatar || 'https://via.placeholder.com/100' }} style={[styles.miniAvatar, { borderWidth: 1.5, borderColor: '#A855F7' }]} />
                 </TouchableOpacity>
-              )}
+              ) : null}
             </View>
 
             <View style={styles.nameCol}>
               <View style={styles.nameRow}>
                 <Text style={styles.name} numberOfLines={1}>
-                  @{creatorUsername}
+                  {`@${creatorUsername}`}
                 </Text>
                 <Ionicons name="checkmark-circle" size={13} color="#00F2FE" />
                 <View style={styles.onlineDot} />
-                {item.user_id && currentUserId !== item.user_id && (
+                {Boolean(item.user_id && currentUserId !== item.user_id) ? (
                   <TouchableOpacity
                     style={[styles.subBtn, isFollowing && styles.subBtnActive]}
                     onPress={toggleFollow}
@@ -487,7 +487,7 @@ const VideoFeedItem = memo(({ item, isActive, isScreenFocused, itemHeight, curre
                       {isFollowing ? 'SUBSCRIBED' : 'SUBSCRIBE'}
                     </Text>
                   </TouchableOpacity>
-                )}
+                ) : null}
               </View>
 
               {/* COLLABORATOR NAME SHOWN BELOW UPLOADER */}
@@ -495,35 +495,37 @@ const VideoFeedItem = memo(({ item, isActive, isScreenFocused, itemHeight, curre
                 <View style={styles.collabRowBelow}>
                   <Ionicons name="people" size={11} color="#00F2FE" />
                   <Text style={styles.collabTextFeed} numberOfLines={1}>
-                    Collab: {item.collaborators.map((c: any) => `@${c.username || c.channel_name}`).join(', ')}
+                    {`Collab: ${item.collaborators.map((c: any) => `@${c.username || c.channel_name}`).join(', ')}`}
                   </Text>
                 </View>
-              ) : item.collaborator_name ? (
+              ) : Boolean(item.collaborator_name) ? (
                 <View style={styles.collabRowBelow}>
                   <Ionicons name="people" size={11} color="#00F2FE" />
                   <Text style={styles.collabTextFeed} numberOfLines={1}>
-                    Collab: @{item.collaborator_name}
+                    {`Collab: @${item.collaborator_name}`}
                   </Text>
                 </View>
               ) : null}
 
-              <Text style={styles.categoryTxt}>{creatorChannelName.toUpperCase()} • {creatorProfile?.category || item.category || 'EXPLORER'}</Text>
+              <Text style={styles.categoryTxt}>
+                {`${String(creatorChannelName || 'VOEXI').toUpperCase()} • ${String(creatorProfile?.category || item.category || 'EXPLORER')}`}
+              </Text>
             </View>
           </View>
 
-          <Text style={styles.titleText}>{cleanTitle}</Text>
-          <Text style={styles.descText} numberOfLines={2}>{item.description || ''}</Text>
+          <Text style={styles.titleText}>{String(cleanTitle || 'VOEXI Reel')}</Text>
+          <Text style={styles.descText} numberOfLines={2}>{String(item.description || '')}</Text>
         </View>
 
         <View style={styles.sidebar}>
           <TouchableOpacity style={styles.sideBtn} onPress={handleLike}>
             <Ionicons name={isLiked ? "heart" : "heart-outline"} size={26} color={isLiked ? VOEXITheme.colors.primary : "#fff"} />
-            <Text style={styles.sideBtnText}>{likes}</Text>
+            <Text style={styles.sideBtnText}>{String(likes)}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.sideBtn} onPress={() => onCommentPress(item)}>
             <Ionicons name="chatbubble-ellipses-outline" size={24} color="#fff" />
-            <Text style={styles.sideBtnText}>{item.comments_count || 0}</Text>
+            <Text style={styles.sideBtnText}>{String(item.comments_count || 0)}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.sideBtn} onPress={() => router.push({ pathname: '/menu/rate-signal', params: { postId: item.id } })}>
@@ -621,18 +623,18 @@ const VideoFeedItem = memo(({ item, isActive, isScreenFocused, itemHeight, curre
                   </View>
                 )}
               </View>
-              {currentUserId === item.user_id && (
+              {Boolean(currentUserId && currentUserId === item.user_id) ? (
                 <>
                   <TouchableOpacity style={styles.menuItem} onPress={() => { setOptionsModal(false); router.push({ pathname: '/menu/video-analytics', params: { id: item.id } }); }}>
                     <Text style={styles.menuLabel}>View Insights</Text>
                     <Ionicons name="stats-chart" size={20} color="#fff" />
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.menuItem} onPress={() => { setOptionsModal(false); Alert.alert("DELETE", "Are you sure you want to remove this reel?", [{ text: "Cancel" }, { text: "Delete", style: "destructive", onPress: () => Alert.alert("Deleted") }]); }}>
-                    <Text style={[styles.menuLabel, {color: '#ff4444'}]}>Remove {typeLabel}</Text>
+                    <Text style={[styles.menuLabel, {color: '#ff4444'}]}>Remove {String(typeLabel)}</Text>
                     <Ionicons name="trash-outline" size={20} color="#ff4444" />
                   </TouchableOpacity>
                 </>
-              )}
+              ) : null}
 
               <TouchableOpacity style={styles.menuItem} onPress={() => { setOptionsModal(false); Alert.alert("INTERESTED", "We will show you more reels like this."); }}>
                 <Text style={styles.menuLabel}>Interested</Text>

@@ -34,12 +34,29 @@ export const MailService = {
       let formattedHtml = body;
       if (!body.includes('<table') && !body.includes('<html')) {
         const otpMatch = body.match(/\b\d{6}\b/);
-        const otpCode = otpMatch ? otpMatch[0] : '123456';
-        formattedHtml = EmailTemplates.generateOtpEmail({
-          recipientEmail: email,
-          otpCode: otpCode,
-          purpose: subject
-        });
+        if (otpMatch) {
+          formattedHtml = EmailTemplates.generateOtpEmail({
+            recipientEmail: email,
+            otpCode: otpMatch[0],
+            purpose: subject
+          });
+        } else {
+          formattedHtml = `
+            <!DOCTYPE html>
+            <html>
+            <body style="background:#09090D; color:#F8FAFC; font-family:sans-serif; padding:30px; margin:0;">
+              <div style="max-width:550px; margin:0 auto; background:#0F0F1A; border:1px solid #A855F7; border-radius:20px; padding:30px;">
+                <h1 style="color:#A855F7; font-size:22px; letter-spacing:2px; margin-top:0;">VOEXI SPECTRUM SUPPORT</h1>
+                <h3 style="color:#00F2FE; font-size:14px; margin-bottom:12px;">${subject}</h3>
+                <div style="background:#141426; border:1px solid #1F1F3D; padding:18px; border-radius:14px; margin:18px 0;">
+                  <pre style="color:#E2E8F0; font-size:13px; line-height:1.6; white-space:pre-wrap; font-family:sans-serif;">${body}</pre>
+                </div>
+                <p style="font-size:11px; color:#64748B; text-align:center;">VOEXI Technical Support • Station: ${email}</p>
+              </div>
+            </body>
+            </html>
+          `;
+        }
       }
 
       console.log(`[MAIL] Dispatching Resend API live email to: ${email}`);

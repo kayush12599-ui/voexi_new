@@ -271,6 +271,185 @@ function saveProfilesData(data) {
   }
 }
 
+// Live Broadcasts Persistence Helpers for Server 2
+function getLiveBroadcastsData() {
+  const pathStr = path.join(LOCAL_STORAGE_DIR, 'live_broadcasts.json');
+  if (fs.existsSync(pathStr)) {
+    try { return JSON.parse(fs.readFileSync(pathStr, 'utf8')); } catch (e) {}
+  }
+  return {};
+}
+
+function saveLiveBroadcastsData(data) {
+  const pathStr = path.join(LOCAL_STORAGE_DIR, 'live_broadcasts.json');
+  try {
+    fs.writeFileSync(pathStr, JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.error('Error saving live_broadcasts.json:', e);
+  }
+}
+
+// System Branding & App Info Persistence Helpers for Server 2 (Multi-Path Dual Sync & Schema Adapter)
+function normalizeAppInfoObj(parsed) {
+  if (!parsed || typeof parsed !== 'object') return parsed;
+
+  const l1Raw = parsed.layer1_branding || parsed.layer1 || parsed;
+  const l2Raw = parsed.layer2_guidelines || parsed.layer2 || {};
+  const l3Raw = parsed.layer3_privacy || parsed.layer3 || {};
+
+  const l1 = {
+    header_label: l1Raw.header_label || l1Raw.headerLabel || 'ELITE CORE LOG',
+    headerLabel: l1Raw.headerLabel || l1Raw.header_label || 'ELITE CORE LOG',
+    app_name: l1Raw.app_name || l1Raw.appName || 'VOEXI',
+    appName: l1Raw.appName || l1Raw.app_name || 'VOEXI',
+    status_badge: l1Raw.status_badge || l1Raw.statusBadge || 'PRIVATE BETA • NEURAL LINK ACTIVE',
+    statusBadge: l1Raw.statusBadge || l1Raw.status_badge || 'PRIVATE BETA • NEURAL LINK ACTIVE',
+    about_title: 'ABOUT VOEXI',
+    aboutTitle: 'ABOUT VOEXI',
+    about_desc: l1Raw.about_desc || l1Raw.aboutDescription || '',
+    aboutDescription: l1Raw.aboutDescription || l1Raw.about_desc || '',
+    version: l1Raw.version || '1.0.89',
+    status: l1Raw.status || 'COMING SOON',
+    developer: l1Raw.developer || 'VOEXI TEAM',
+    origin: l1Raw.origin || 'CORE PROTOCOL',
+    footer_thankyou: l1Raw.footer_thankyou || l1Raw.footerThankYou || "Thank you for being part of VOEXI.",
+    copyright: l1Raw.copyright || "© 2026 VOEXI. ALL RIGHTS RESERVED."
+  };
+
+  const l2 = {
+    title: l2Raw.title || l2Raw.guidelinesTitle || 'COMMUNITY GUIDELINES & PROTOCOL',
+    guidelinesTitle: l2Raw.guidelinesTitle || l2Raw.title || 'COMMUNITY GUIDELINES & PROTOCOL',
+    last_updated: l2Raw.last_updated || l2Raw.lastUpdated || 'November 2026',
+    lastUpdated: l2Raw.lastUpdated || l2Raw.last_updated || 'November 2026',
+    rule_1: l2Raw.rule_1 || l2Raw.rule1 || '',
+    rule1: l2Raw.rule1 || l2Raw.rule_1 || '',
+    rule_2: l2Raw.rule_2 || l2Raw.rule2 || '',
+    rule2: l2Raw.rule2 || l2Raw.rule_2 || '',
+    rule_3: l2Raw.rule_3 || l2Raw.rule3 || '',
+    rule3: l2Raw.rule3 || l2Raw.rule_3 || '',
+    rule_4: l2Raw.rule_4 || l2Raw.rule4 || '',
+    rule4: l2Raw.rule4 || l2Raw.rule_4 || '',
+    extra_rules: l2Raw.extra_rules || []
+  };
+
+  const l3 = {
+    last_updated: l3Raw.last_updated || l3Raw.privacyLastUpdated || 'November 2026',
+    privacyLastUpdated: l3Raw.privacyLastUpdated || l3Raw.last_updated || 'November 2026',
+    section_1_title: l3Raw.section_1_title || l3Raw.section1Title || 'Section 1: Data Collection & Usage',
+    section1Title: l3Raw.section1Title || l3Raw.section_1_title || 'Section 1: Data Collection & Usage',
+    section_1_body: l3Raw.section_1_body || l3Raw.section1Text || '',
+    section1Text: l3Raw.section1Text || l3Raw.section_1_body || '',
+    section_2_title: l3Raw.section_2_title || l3Raw.section2Title || 'Section 2: AI Disclosure',
+    section2Title: l3Raw.section2Title || l3Raw.section_2_title || 'Section 2: AI Disclosure',
+    section_2_body: l3Raw.section_2_body || l3Raw.section2Text || '',
+    section2Text: l3Raw.section2Text || l3Raw.section_2_body || '',
+    section_3_title: l3Raw.section_3_title || l3Raw.section3Title || 'Section 3: Media Permissions',
+    section3Title: l3Raw.section3Title || l3Raw.section_3_title || 'Section 3: Media Permissions',
+    section_3_body: l3Raw.section_3_body || l3Raw.section3Text || '',
+    section3Text: l3Raw.section3Text || l3Raw.section_3_body || '',
+    section_4_title: l3Raw.section_4_title || l3Raw.section4Title || 'Section 4: Monetization & Coins',
+    section4Title: l3Raw.section4Title || l3Raw.section_4_title || 'Section 4: Monetization & Coins',
+    section_4_body: l3Raw.section_4_body || l3Raw.section4Text || '',
+    section4Text: l3Raw.section4Text || l3Raw.section_4_body || '',
+    section_5_title: l3Raw.section_5_title || l3Raw.section5Title || 'Section 5: Contact Us',
+    section5Title: l3Raw.section5Title || l3Raw.section_5_title || 'Section 5: Contact Us',
+    section_5_body: l3Raw.section_5_body || l3Raw.section5Text || '',
+    section5Text: l3Raw.section5Text || l3Raw.section_5_body || '',
+    extra_sections: l3Raw.extra_sections || []
+  };
+
+  return {
+    ...parsed,
+    layer1_branding: l1,
+    layer1: l1,
+    layer2_guidelines: l2,
+    layer2: l2,
+    layer3_privacy: l3,
+    layer3: l3
+  };
+}
+
+function getAppInfoData() {
+  const possiblePaths = [
+    path.join(LOCAL_STORAGE_DIR, 'app-info.json'),
+    path.join(__dirname, '..', 'media_server_storage', 'app-info.json'),
+    'C:\\vibroxe_new\\media_server_storage\\app-info.json',
+    'C:\\Users\\hp\\OneDrive\\Desktop\\admin\\media_server_storage\\app-info.json',
+    'C:\\Users\\hp\\OneDrive\\Desktop\\admin\\app-info.json',
+    'D:\\vibroxe_media_storage\\app-info.json'
+  ];
+
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) {
+      try {
+        const raw = fs.readFileSync(p, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+          return normalizeAppInfoObj(parsed);
+        }
+      } catch (e) {}
+    }
+  }
+
+  const defaultObj = {
+    layer1_branding: {
+      header_label: 'ELITE CORE LOG',
+      app_name: 'VOEXI',
+      status_badge: 'PRIVATE BETA • NEURAL LINK ACTIVE',
+      about_title: 'ABOUT VOEXI',
+      about_desc: "VOEXI is a next-generation AI-powered social platform designed for creators, communities, and meaningful digital experiences.",
+      version: '1.0.89',
+      status: 'COMING SOON',
+      developer: 'VOEXI TEAM',
+      origin: 'CORE PROTOCOL'
+    },
+    layer2_guidelines: {
+      title: "COMMUNITY GUIDELINES & PROTOCOL",
+      last_updated: "November 2026",
+      rule_1: "1. Respectful Content Sharing: Treat all creators, users, and communities with dignity.",
+      rule_2: "2. AI Content Integrity: All AI-generated audio, video, and neural responses must follow transparency standards.",
+      rule_3: "3. Platform Security Shield: Unauthorized attempts to tamper with Neural Links or Server Storage will result in account suspension.",
+      rule_4: "4. Creator Economy Rules: VX Coins, Diamond rewards, and earnings transfers must follow verified transaction guidelines."
+    },
+    layer3_privacy: {
+      last_updated: "November 2026",
+      section_1_title: "1. Data Collection & Usage",
+      section_1_body: "VOEXI collects minimal data required for a premium experience.",
+      section_2_title: "2. AI Disclosure",
+      section_2_body: "Our platform uses Artificial Intelligence (AI) to enhance video quality.",
+      section_3_title: "3. Media Permissions",
+      section_3_body: "We request access to your Camera and Microphone only when you choose to record.",
+      section_4_title: "4. Monetization & Coins",
+      section_4_body: "Data related to your earnings and VX Coins is encrypted.",
+      section_5_title: "5. Contact Us",
+      section_5_body: "If you have any questions regarding your privacy, please contact support@voexi.com."
+    }
+  };
+
+  return normalizeAppInfoObj(defaultObj);
+}
+
+function saveAppInfoData(data) {
+  const targetPaths = [
+    path.join(LOCAL_STORAGE_DIR, 'app-info.json'),
+    path.join(__dirname, '..', 'media_server_storage', 'app-info.json'),
+    'C:\\vibroxe_new\\media_server_storage\\app-info.json',
+    'C:\\Users\\hp\\OneDrive\\Desktop\\admin\\media_server_storage\\app-info.json',
+    'C:\\Users\\hp\\OneDrive\\Desktop\\admin\\app-info.json',
+    'D:\\vibroxe_media_storage\\app-info.json'
+  ];
+
+  targetPaths.forEach(p => {
+    try {
+      const dir = path.dirname(p);
+      if (fs.existsSync(dir) || p.startsWith('D:') || p.includes('OneDrive')) {
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(p, JSON.stringify(data, null, 2));
+      }
+    } catch (e) {}
+  });
+}
+
 // 🧠 VOEXI HYPER-RETAIN DOPAMINE AI RECOMMENDATION ENGINE (TIKTOK/INSTAGRAM V2)
 function calculateViralAlgorithmScore(filename, stats, dirPath, userId) {
   const cleanName = extractCleanFilename(filename);
@@ -439,6 +618,108 @@ const server = http.createServer((req, res) => {
 
   const rawUrl = req.url.split('?')[0];
   const urlPath = decodeURIComponent(rawUrl);
+
+  // API Endpoint: /app-info.json & /api/3layer-config (Get App Info & System Branding Config)
+  if ((urlPath === '/app-info.json' || urlPath === '/api/3layer-config') && req.method === 'GET') {
+    const info = getAppInfoData();
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    return res.end(JSON.stringify({ success: true, config: info, data: info }, null, 2));
+  }
+
+  // API Endpoint: /api/app-info & /api/3layer-config (Update App Info & System Branding Config from Web Admin)
+  if ((urlPath === '/api/app-info' || urlPath === '/api/3layer-config') && (req.method === 'POST' || req.method === 'PUT')) {
+    let body = '';
+    req.on('data', chunk => { body += chunk.toString(); });
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const current = getAppInfoData();
+
+        // Support both Next.js Admin Portal schema ({ layer1, layer2, layer3 }) and standard schema ({ layer1_branding, layer2_guidelines, layer3_privacy })
+        let normalizedPayload = { ...payload };
+        if (payload.layer1 || payload.layer2 || payload.layer3) {
+          const l1 = payload.layer1 || {};
+          const l2 = payload.layer2 || {};
+          const l3 = payload.layer3 || {};
+
+          const c1 = current.layer1_branding || current.layer1 || {};
+          const c2 = current.layer2_guidelines || current.layer2 || {};
+          const c3 = current.layer3_privacy || current.layer3 || {};
+
+          normalizedPayload.layer1_branding = {
+            header_label: l1.headerLabel || l1.header_label || c1.header_label || 'ELITE CORE LOG',
+            headerLabel: l1.headerLabel || l1.header_label || c1.headerLabel || 'ELITE CORE LOG',
+            app_name: l1.appName || l1.app_name || c1.app_name || 'VOEXI',
+            appName: l1.appName || l1.app_name || c1.appName || 'VOEXI',
+            status_badge: l1.statusBadge || l1.status_badge || c1.status_badge || 'PRIVATE BETA • NEURAL LINK ACTIVE',
+            statusBadge: l1.statusBadge || l1.status_badge || c1.statusBadge || 'PRIVATE BETA • NEURAL LINK ACTIVE',
+            about_title: 'ABOUT VOEXI',
+            aboutTitle: 'ABOUT VOEXI',
+            about_desc: l1.aboutDescription || l1.about_desc || c1.about_desc || '',
+            aboutDescription: l1.aboutDescription || l1.about_desc || c1.aboutDescription || '',
+            version: l1.version || c1.version || '1.0.89',
+            status: l1.status || c1.status || 'COMING SOON',
+            developer: l1.developer || c1.developer || 'VOEXI TEAM',
+            origin: l1.origin || c1.origin || 'CORE PROTOCOL'
+          };
+          normalizedPayload.layer1 = normalizedPayload.layer1_branding;
+
+          normalizedPayload.layer2_guidelines = {
+            title: l2.guidelinesTitle || l2.title || c2.title || 'COMMUNITY GUIDELINES & PROTOCOL',
+            guidelinesTitle: l2.guidelinesTitle || l2.title || c2.guidelinesTitle || 'COMMUNITY GUIDELINES & PROTOCOL',
+            last_updated: l2.lastUpdated || l2.last_updated || c2.last_updated || 'November 2026',
+            lastUpdated: l2.lastUpdated || l2.last_updated || c2.lastUpdated || 'November 2026',
+            rule_1: l2.rule1 || l2.rule_1 || c2.rule_1 || '1. Respectful Content Sharing: Treat all creators, users, and communities with dignity.',
+            rule1: l2.rule1 || l2.rule_1 || c2.rule1 || '1. Respectful Content Sharing: Treat all creators, users, and communities with dignity.',
+            rule_2: l2.rule2 || l2.rule_2 || c2.rule_2 || '2. AI Content Integrity: All AI-generated audio, video, and neural responses must follow transparency standards.',
+            rule2: l2.rule2 || l2.rule_2 || c2.rule2 || '2. AI Content Integrity: All AI-generated audio, video, and neural responses must follow transparency standards.',
+            rule_3: l2.rule3 || l2.rule_3 || c2.rule_3 || '3. Platform Security Shield: Unauthorized attempts to tamper with Neural Links or Server Storage will result in account suspension.',
+            rule3: l2.rule3 || l2.rule_3 || c2.rule3 || '3. Platform Security Shield: Unauthorized attempts to tamper with Neural Links or Server Storage will result in account suspension.',
+            rule_4: l2.rule4 || l2.rule_4 || c2.rule_4 || '4. Creator Economy Rules: VX Coins, Diamond rewards, and earnings transfers must follow verified transaction guidelines.',
+            rule4: l2.rule4 || l2.rule_4 || c2.rule4 || '4. Creator Economy Rules: VX Coins, Diamond rewards, and earnings transfers must follow verified transaction guidelines.'
+          };
+          normalizedPayload.layer2 = normalizedPayload.layer2_guidelines;
+
+          normalizedPayload.layer3_privacy = {
+            last_updated: l3.privacyLastUpdated || l3.last_updated || c3.last_updated || 'November 2026',
+            privacyLastUpdated: l3.privacyLastUpdated || l3.last_updated || c3.privacyLastUpdated || 'November 2026',
+            section_1_title: l3.section1Title || l3.section_1_title || c3.section_1_title || 'Section 1: Data Collection & Usage',
+            section1Title: l3.section1Title || l3.section_1_title || c3.section1Title || 'Section 1: Data Collection & Usage',
+            section_1_body: l3.section1Text || l3.section_1_body || c3.section_1_body || 'VOEXI collects minimal data required for a premium experience.',
+            section1Text: l3.section1Text || l3.section_1_body || c3.section1Text || 'VOEXI collects minimal data required for a premium experience.',
+            section_2_title: l3.section2Title || l3.section_2_title || c3.section_2_title || 'Section 2: AI Disclosure',
+            section2Title: l3.section2Title || l3.section_2_title || c3.section2Title || 'Section 2: AI Disclosure',
+            section_2_body: l3.section2Text || l3.section_2_body || c3.section_2_body || 'Our platform uses Artificial Intelligence (AI) to enhance video quality.',
+            section2Text: l3.section2Text || l3.section_2_body || c3.section2Text || 'Our platform uses Artificial Intelligence (AI) to enhance video quality.',
+            section_3_title: l3.section3Title || l3.section_3_title || c3.section_3_title || 'Section 3: Media Permissions',
+            section3Title: l3.section3Title || l3.section_3_title || c3.section3Title || 'Section 3: Media Permissions',
+            section_3_body: l3.section3Text || l3.section_3_body || c3.section_3_body || 'We request access to your Camera and Microphone only when you choose to record.',
+            section3Text: l3.section3Text || l3.section_3_body || c3.section3Text || 'We request access to your Camera and Microphone only when you choose to record.',
+            section_4_title: l3.section4Title || l3.section_4_title || c3.section4Title || 'Section 4: Monetization & Coins',
+            section4Title: l3.section4Title || l3.section_4_title || c3.section4Title || 'Section 4: Monetization & Coins',
+            section_4_body: l3.section4Text || l3.section_4_body || c3.section4Text || 'Data related to your earnings and VX Coins is encrypted.',
+            section4Text: l3.section4Text || l3.section_4_body || c3.section4Text || 'Data related to your earnings and VX Coins is encrypted.',
+            section_5_title: l3.section5Title || l3.section_5_title || c3.section_5_title || 'Section 5: Contact Us',
+            section5Title: l3.section5Title || l3.section_5_title || c3.section5Title || 'Section 5: Contact Us',
+            section_5_body: l3.section5Text || l3.section_5_body || c3.section_5_body || 'If you have any questions regarding your privacy, please contact support@voexi.com.',
+            section5Text: l3.section5Text || l3.section_5_body || c3.section5Text || 'If you have any questions regarding your privacy, please contact support@voexi.com.'
+          };
+          normalizedPayload.layer3 = normalizedPayload.layer3_privacy;
+        }
+
+        const updated = { ...current, ...normalizedPayload };
+        saveAppInfoData(updated);
+        console.log(`⚙️ [MEDIA SERVER] App Info / 3-Layer Config written directly to disk storage`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: true, data: updated, config: updated }));
+      } catch (e) {
+        console.error('Error in /api/app-info:', e);
+      }
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: 'Invalid JSON payload' }));
+    });
+    return;
+  }
 
   // API Endpoint: Clear All Comments
   if (urlPath === '/api/comments/clear-all' && (req.method === 'DELETE' || req.method === 'POST')) {
@@ -802,6 +1083,38 @@ const server = http.createServer((req, res) => {
       res.end(JSON.stringify({ success: false, error: 'Report ID required' }));
     }
     return;
+  }
+
+  // API Endpoint: /api/live_broadcasts (GET / POST)
+  if (urlPath === '/api/live_broadcasts') {
+    if (req.method === 'GET') {
+      const broadcasts = getLiveBroadcastsData();
+      const activeList = Object.values(broadcasts).filter(b => b && (b.status === 'live' || b.status === 'preparing'));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: true, broadcasts: activeList }));
+    }
+
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk.toString(); });
+      req.on('end', () => {
+        try {
+          const payload = JSON.parse(body || '{}');
+          if (payload.stream_key) {
+            const broadcasts = getLiveBroadcastsData();
+            const key = payload.stream_key;
+            broadcasts[key] = { ...(broadcasts[key] || {}), ...payload, updated_at: new Date().toISOString() };
+            saveLiveBroadcastsData(broadcasts);
+            console.log(`📡 [MEDIA SERVER] Live broadcast record synced for ${key} (Status: ${payload.status})`);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ success: true, broadcast: broadcasts[key] }));
+          }
+        } catch (e) {}
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'Invalid payload' }));
+      });
+      return;
+    }
   }
 
   // Serve /profiles.json directly
@@ -1579,6 +1892,9 @@ const server = http.createServer((req, res) => {
             <button onclick="openWriteModal()" style="background: #14142B; color: #38BDF8; border: 1px solid rgba(56, 189, 248, 0.4); padding: 10px 16px; border-radius: 10px; font-weight: 800; font-size: 11px; cursor: pointer;">
               ✍️ WRITE ARTICLE
             </button>
+            <button onclick="openAppInfoConfigModal()" style="background: rgba(168, 85, 247, 0.18); color: #C084FC; border: 1px solid rgba(168, 85, 247, 0.4); padding: 10px 16px; border-radius: 10px; font-weight: 800; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+              📜 TERMS, POLICIES & BRANDING CONFIG
+            </button>
           </div>
           <div>
             <button onclick="openUploadModal()" style="background: linear-gradient(135deg, #E11D48, #F43F5E); color: #FFF; border: none; padding: 10px 18px; border-radius: 10px; font-weight: 900; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 15px rgba(225, 29, 72, 0.4);">
@@ -2164,6 +2480,150 @@ const server = http.createServer((req, res) => {
           </div>
         </div>
 
+        <!-- 📜 3-LAYER SYSTEM BRANDING, GUIDELINES & PRIVACY POLICIES CONFIG MODAL -->
+        <div id="appInfoConfigModal" class="modal-bg" style="z-index: 2600;">
+          <div class="modal-box" style="max-width: 850px; border-color: #A855F7; box-shadow: 0 0 35px rgba(168, 85, 247, 0.3);">
+            <div class="modal-title" style="color: #C084FC;">
+              <span style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:20px;">📜</span>
+                <span>VOEXI 3-LAYER SYSTEM BRANDING, GUIDELINES & PRIVACY POLICY CONTROL</span>
+              </span>
+              <span style="cursor:pointer; color:#64748B;" onclick="closeAppInfoConfigModal()">✖</span>
+            </div>
+
+            <!-- TAB SWITCHER FOR 3 LAYERS -->
+            <div style="display:flex; gap:8px; margin-bottom:16px; border-bottom:1px solid #1E1E38; padding-bottom:10px;">
+              <button id="btnLayer1" class="tab-btn active" onclick="switchConfigLayer(1)">LAYER 1: BRANDING & METADATA</button>
+              <button id="btnLayer2" class="tab-btn" onclick="switchConfigLayer(2)">LAYER 2: GUIDELINES</button>
+              <button id="btnLayer3" class="tab-btn" onclick="switchConfigLayer(3)">LAYER 3: PRIVACY POLICY (5-SECTIONS)</button>
+            </div>
+
+            <!-- LAYER 1 FORM -->
+            <div id="panelLayer1">
+              <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                <div class="form-group">
+                  <label class="form-lbl">Header Label</label>
+                  <input type="text" id="cfgHeaderLabel" class="form-input" value="ELITE CORE LOG" />
+                </div>
+                <div class="form-group">
+                  <label class="form-lbl">App Name</label>
+                  <input type="text" id="cfgAppName" class="form-input" value="VOEXI" />
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-lbl">Status Badge</label>
+                <input type="text" id="cfgStatusBadge" class="form-input" value="PRIVATE BETA • NEURAL LINK ACTIVE" />
+              </div>
+              <div class="form-group">
+                <label class="form-lbl">About Manifesto Description</label>
+                <textarea id="cfgAboutDesc" class="form-textarea" rows="3"></textarea>
+              </div>
+              <div style="display:grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap:10px;">
+                <div class="form-group">
+                  <label class="form-lbl">Version</label>
+                  <input type="text" id="cfgVersion" class="form-input" value="1.0.0" />
+                </div>
+                <div class="form-group">
+                  <label class="form-lbl">Status</label>
+                  <input type="text" id="cfgStatus" class="form-input" value="COMING SOON" />
+                </div>
+                <div class="form-group">
+                  <label class="form-lbl">Developer</label>
+                  <input type="text" id="cfgDeveloper" class="form-input" value="VOEXI TEAM" />
+                </div>
+                <div class="form-group">
+                  <label class="form-lbl">Origin</label>
+                  <input type="text" id="cfgOrigin" class="form-input" value="CORE PROTOCOL" />
+                </div>
+              </div>
+            </div>
+
+            <!-- LAYER 2 FORM -->
+            <div id="panelLayer2" style="display:none;">
+              <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                <div class="form-group">
+                  <label class="form-lbl">Guidelines Title</label>
+                  <input type="text" id="cfgGTitle" class="form-input" value="COMMUNITY GUIDELINES & PROTOCOL" />
+                </div>
+                <div class="form-group">
+                  <label class="form-lbl">Last Updated</label>
+                  <input type="text" id="cfgGDate" class="form-input" value="November 2026" />
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-lbl">Rule 1: Content Safety</label>
+                <textarea id="cfgGRule1" class="form-textarea" rows="2"></textarea>
+              </div>
+              <div class="form-group">
+                <label class="form-lbl">Rule 2: Respect & Harassment</label>
+                <textarea id="cfgGRule2" class="form-textarea" rows="2"></textarea>
+              </div>
+              <div class="form-group">
+                <label class="form-lbl">Rule 3: IP & Security Shield</label>
+                <textarea id="cfgGRule3" class="form-textarea" rows="2"></textarea>
+              </div>
+              <div class="form-group">
+                <label class="form-lbl">Rule 4: Creator Economy Rules</label>
+                <textarea id="cfgGRule4" class="form-textarea" rows="2"></textarea>
+              </div>
+
+              <!-- DYNAMIC EXTRA RULES CONTAINER -->
+              <div id="extraRulesContainer"></div>
+              <button onclick="addNewRuleToLayer2()" style="margin-top:10px; background:rgba(0, 242, 254, 0.15); color:#00F2FE; border:1px solid rgba(0, 242, 254, 0.4); padding:8px 14px; border-radius:8px; font-size:11px; font-weight:800; cursor:pointer;">
+                ➕ ADD NEW COMMUNITY RULE
+              </button>
+            </div>
+
+            <!-- LAYER 3 FORM -->
+            <div id="panelLayer3" style="display:none;">
+              <div class="form-group">
+                <label class="form-lbl">Privacy Policy Last Updated Date</label>
+                <input type="text" id="cfgPLastUpdated" class="form-input" value="November 2026" />
+              </div>
+              <div class="form-group">
+                <label class="form-lbl">Section 1: Data Collection & Usage</label>
+                <input type="text" id="cfgP1Title" class="form-input" value="1. Data Collection & Usage" style="margin-bottom:4px;" />
+                <textarea id="cfgP1Body" class="form-textarea" rows="2"></textarea>
+              </div>
+              <div class="form-group">
+                <label class="form-lbl">Section 2: AI Disclosure</label>
+                <input type="text" id="cfgP2Title" class="form-input" value="2. AI Disclosure" style="margin-bottom:4px;" />
+                <textarea id="cfgP2Body" class="form-textarea" rows="2"></textarea>
+              </div>
+              <div class="form-group">
+                <label class="form-lbl">Section 3: Media Permissions</label>
+                <input type="text" id="cfgP3Title" class="form-input" value="3. Media Permissions" style="margin-bottom:4px;" />
+                <textarea id="cfgP3Body" class="form-textarea" rows="2"></textarea>
+              </div>
+              <div class="form-group">
+                <label class="form-lbl">Section 4: Monetization & Coins</label>
+                <input type="text" id="cfgP4Title" class="form-input" value="4. Monetization & Coins" style="margin-bottom:4px;" />
+                <textarea id="cfgP4Body" class="form-textarea" rows="2"></textarea>
+              </div>
+              <div class="form-group">
+                <label class="form-lbl">Section 5: Contact Us</label>
+                <input type="text" id="cfgP5Title" class="form-input" value="5. Contact Us" style="margin-bottom:4px;" />
+                <textarea id="cfgP5Body" class="form-textarea" rows="2"></textarea>
+              </div>
+
+              <!-- DYNAMIC EXTRA SECTIONS CONTAINER -->
+              <div id="extraSectionsContainer"></div>
+              <button onclick="addNewSectionToLayer3()" style="margin-top:10px; background:rgba(168, 85, 247, 0.15); color:#C084FC; border:1px solid rgba(168, 85, 247, 0.4); padding:8px 14px; border-radius:8px; font-size:11px; font-weight:800; cursor:pointer;">
+                ➕ ADD NEW PRIVACY SECTION
+              </button>
+            </div>
+
+            <div style="margin-top:20px; display:flex; gap:10px;">
+              <button onclick="saveAppInfoConfigToServer()" class="upload-btn" style="flex:1; justify-content:center; padding:12px; font-size:12px; font-weight:900; background: linear-gradient(135deg, #A855F7, #6366F1);">
+                💾 SAVE 3-LAYER SYSTEM CONFIG ON SERVER
+              </button>
+              <button onclick="closeAppInfoConfigModal()" style="background:#14142B; color:#AAA; border:none; padding:12px 20px; border-radius:10px; font-weight:800; cursor:pointer;">
+                CANCEL
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- UPLOAD MODAL -->
         <div id="uploadModal" class="modal-bg">
           <div class="modal-box">
@@ -2223,6 +2683,196 @@ const server = http.createServer((req, res) => {
                 setTimeout(() => { t.style.display = 'none'; }, 3000);
               }
             } catch (e) {}
+          }
+
+          let CURRENT_APP_INFO_DATA = {};
+
+          async function loadAppInfoConfigIntoForm() {
+            try {
+              const res = await fetch('/app-info.json');
+              if (res.ok) {
+                CURRENT_APP_INFO_DATA = await res.json();
+                const l1 = CURRENT_APP_INFO_DATA.layer1_branding || CURRENT_APP_INFO_DATA || {};
+                const l2 = CURRENT_APP_INFO_DATA.layer2_guidelines || {};
+                const l3 = CURRENT_APP_INFO_DATA.layer3_privacy || {};
+
+                // Layer 1
+                if (document.getElementById('cfgHeaderLabel')) document.getElementById('cfgHeaderLabel').value = l1.header_label || 'ELITE CORE LOG';
+                if (document.getElementById('cfgAppName')) document.getElementById('cfgAppName').value = l1.app_name || 'VOEXI';
+                if (document.getElementById('cfgStatusBadge')) document.getElementById('cfgStatusBadge').value = l1.status_badge || 'PRIVATE BETA • NEURAL LINK ACTIVE';
+                if (document.getElementById('cfgAboutDesc')) document.getElementById('cfgAboutDesc').value = l1.about_desc || '';
+                if (document.getElementById('cfgVersion')) document.getElementById('cfgVersion').value = l1.version || '1.0.0';
+                if (document.getElementById('cfgStatus')) document.getElementById('cfgStatus').value = l1.status || 'COMING SOON';
+                if (document.getElementById('cfgDeveloper')) document.getElementById('cfgDeveloper').value = l1.developer || 'VOEXI TEAM';
+                if (document.getElementById('cfgOrigin')) document.getElementById('cfgOrigin').value = l1.origin || 'CORE PROTOCOL';
+
+                // Layer 2
+                if (document.getElementById('cfgGTitle')) document.getElementById('cfgGTitle').value = l2.title || 'COMMUNITY GUIDELINES & PROTOCOL';
+                if (document.getElementById('cfgGDate')) document.getElementById('cfgGDate').value = l2.last_updated || 'November 2026';
+                if (document.getElementById('cfgGRule1')) document.getElementById('cfgGRule1').value = l2.rule_1 || '';
+                if (document.getElementById('cfgGRule2')) document.getElementById('cfgGRule2').value = l2.rule_2 || '';
+                if (document.getElementById('cfgGRule3')) document.getElementById('cfgGRule3').value = l2.rule_3 || '';
+                if (document.getElementById('cfgGRule4')) document.getElementById('cfgGRule4').value = l2.rule_4 || '';
+
+                // Layer 3
+                if (document.getElementById('cfgPLastUpdated')) document.getElementById('cfgPLastUpdated').value = l3.last_updated || 'November 2026';
+                if (document.getElementById('cfgP1Title')) document.getElementById('cfgP1Title').value = l3.section_1_title || '1. Data Collection & Usage';
+                if (document.getElementById('cfgP1Body')) document.getElementById('cfgP1Body').value = l3.section_1_body || '';
+                if (document.getElementById('cfgP2Title')) document.getElementById('cfgP2Title').value = l3.section_2_title || '2. AI Disclosure';
+                if (document.getElementById('cfgP2Body')) document.getElementById('cfgP2Body').value = l3.section_2_body || '';
+                if (document.getElementById('cfgP3Title')) document.getElementById('cfgP3Title').value = l3.section_3_title || '3. Media Permissions';
+                if (document.getElementById('cfgP3Body')) document.getElementById('cfgP3Body').value = l3.section_3_body || '';
+                if (document.getElementById('cfgP4Title')) document.getElementById('cfgP4Title').value = l3.section_4_title || '4. Monetization & Coins';
+                if (document.getElementById('cfgP4Body')) document.getElementById('cfgP4Body').value = l3.section_4_body || '';
+                if (document.getElementById('cfgP5Title')) document.getElementById('cfgP5Title').value = l3.section_5_title || '5. Contact Us';
+                if (document.getElementById('cfgP5Body')) document.getElementById('cfgP5Body').value = l3.section_5_body || '';
+
+                // Populate dynamic extra rules
+                const rBox = document.getElementById('extraRulesContainer');
+                if (rBox) {
+                  rBox.innerHTML = '';
+                  if (Array.isArray(l2.extra_rules)) {
+                    l2.extra_rules.forEach(rVal => addNewRuleToLayer2(rVal));
+                  }
+                }
+
+                // Populate dynamic extra sections
+                const sBox = document.getElementById('extraSectionsContainer');
+                if (sBox) {
+                  sBox.innerHTML = '';
+                  if (Array.isArray(l3.extra_sections)) {
+                    l3.extra_sections.forEach(sec => addNewSectionToLayer3(sec.title, sec.body));
+                  }
+                }
+              }
+            } catch (e) {
+              console.error('Error loading app info into form:', e);
+            }
+          }
+
+          function switchConfigLayer(num) {
+            ['panelLayer1', 'panelLayer2', 'panelLayer3'].forEach((pId, idx) => {
+              const el = document.getElementById(pId);
+              const btn = document.getElementById('btnLayer' + (idx + 1));
+              if (el) el.style.display = (idx + 1 === num) ? 'block' : 'none';
+              if (btn) {
+                if (idx + 1 === num) btn.classList.add('active');
+                else btn.classList.remove('active');
+              }
+            });
+          }
+
+          function openAppInfoConfigModal() {
+            const el = document.getElementById('appInfoConfigModal');
+            if (el) el.style.display = 'flex';
+            switchConfigLayer(1);
+            loadAppInfoConfigIntoForm();
+          }
+
+          function closeAppInfoConfigModal() {
+            const el = document.getElementById('appInfoConfigModal');
+            if (el) el.style.display = 'none';
+          }
+
+          function addNewRuleToLayer2(initialVal) {
+            var container = document.getElementById('extraRulesContainer');
+            if (!container) return;
+            var count = container.children.length + 5;
+            var div = document.createElement('div');
+            div.className = 'form-group extra-rule-item';
+            div.style.marginTop = '10px';
+            div.innerHTML = '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
+              '<label class="form-lbl">Rule ' + count + ': Custom Guideline</label>' +
+              '<button onclick="this.parentElement.parentElement.remove()" style="background:#EF4444; color:#FFF; border:none; padding:2px 8px; border-radius:4px; font-size:9px; font-weight:800; cursor:pointer;">❌ REMOVE</button>' +
+            '</div>' +
+            '<textarea class="form-textarea extra-rule-input" rows="2">' + (initialVal || '') + '</textarea>';
+            container.appendChild(div);
+          }
+
+          function addNewSectionToLayer3(initialTitle, initialBody) {
+            var container = document.getElementById('extraSectionsContainer');
+            if (!container) return;
+            var count = container.children.length + 6;
+            var div = document.createElement('div');
+            div.className = 'form-group extra-section-item';
+            div.style.marginTop = '10px';
+            div.innerHTML = '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
+              '<label class="form-lbl">Section ' + count + ': Custom Policy Section</label>' +
+              '<button onclick="this.parentElement.parentElement.remove()" style="background:#EF4444; color:#FFF; border:none; padding:2px 8px; border-radius:4px; font-size:9px; font-weight:800; cursor:pointer;">❌ REMOVE</button>' +
+            '</div>' +
+            '<input type="text" class="form-input extra-section-title" value="' + (initialTitle || (count + '. Custom Policy Title')) + '" style="margin-bottom:4px;" />' +
+            '<textarea class="form-textarea extra-section-body" rows="2">' + (initialBody || '') + '</textarea>';
+            container.appendChild(div);
+          }
+
+          async function saveAppInfoConfigToServer() {
+            const extraRules = Array.from(document.querySelectorAll('.extra-rule-input')).map(el => el.value).filter(Boolean);
+            const extraSections = Array.from(document.querySelectorAll('.extra-section-item')).map(el => ({
+              title: el.querySelector('.extra-section-title')?.value || '',
+              body: el.querySelector('.extra-section-body')?.value || ''
+            })).filter(s => s.title || s.body);
+
+            const payload = {
+              layer1_branding: {
+                header_label: document.getElementById('cfgHeaderLabel')?.value || 'ELITE CORE LOG',
+                app_name: document.getElementById('cfgAppName')?.value || 'VOEXI',
+                status_badge: document.getElementById('cfgStatusBadge')?.value || 'PRIVATE BETA • NEURAL LINK ACTIVE',
+                about_title: 'ABOUT VOEXI',
+                about_desc: document.getElementById('cfgAboutDesc')?.value || '',
+                version: document.getElementById('cfgVersion')?.value || '1.0.0',
+                status: document.getElementById('cfgStatus')?.value || 'COMING SOON',
+                developer: document.getElementById('cfgDeveloper')?.value || 'VOEXI TEAM',
+                origin: document.getElementById('cfgOrigin')?.value || 'CORE PROTOCOL',
+                footer_thankyou: CURRENT_APP_INFO_DATA?.layer1_branding?.footer_thankyou || "Thank you for being part of VOEXI.",
+                copyright: CURRENT_APP_INFO_DATA?.layer1_branding?.copyright || "© 2026 VOEXI. ALL RIGHTS RESERVED."
+              },
+              layer2_guidelines: {
+                title: document.getElementById('cfgGTitle')?.value || 'COMMUNITY GUIDELINES & PROTOCOL',
+                last_updated: document.getElementById('cfgGDate')?.value || 'November 2026',
+                rule_1: document.getElementById('cfgGRule1')?.value || '',
+                rule_2: document.getElementById('cfgGRule2')?.value || '',
+                rule_3: document.getElementById('cfgGRule3')?.value || '',
+                rule_4: document.getElementById('cfgGRule4')?.value || '',
+                extra_rules: extraRules
+              },
+              layer3_privacy: {
+                last_updated: document.getElementById('cfgPLastUpdated')?.value || 'November 2026',
+                section_1_title: document.getElementById('cfgP1Title')?.value || '1. Data Collection & Usage',
+                section_1_body: document.getElementById('cfgP1Body')?.value || '',
+                section_2_title: document.getElementById('cfgP2Title')?.value || '2. AI Disclosure',
+                section_2_body: document.getElementById('cfgP2Body')?.value || '',
+                section_3_title: document.getElementById('cfgP3Title')?.value || '3. Media Permissions',
+                section_3_body: document.getElementById('cfgP3Body')?.value || '',
+                section_4_title: document.getElementById('cfgP4Title')?.value || '4. Monetization & Coins',
+                section_4_body: document.getElementById('cfgP4Body')?.value || '',
+                section_5_title: document.getElementById('cfgP5Title')?.value || '5. Contact Us',
+                section_5_body: document.getElementById('cfgP5Body')?.value || '',
+                extra_sections: extraSections
+              },
+              scanning_locations: CURRENT_APP_INFO_DATA?.scanning_locations || [
+                "D:\\\\vibroxe_media_storage",
+                "C:\\\\vibroxe_new\\\\media_server_storage",
+                "C:\\\\vibroxe_new\\\\assets\\\\images",
+                "D:\\\\"
+              ]
+            };
+
+            try {
+              const res = await fetch('/api/app-info', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+              });
+              const data = await res.json();
+              if (data.success) {
+                showToast('📜 Saved 3-Layer System Config on Server!');
+                closeAppInfoConfigModal();
+              } else {
+                alert('Save error: ' + (data.error || 'Failed'));
+              }
+            } catch (e) {
+              alert('Save error: ' + e.message);
+            }
           }
 
           let ALL_SERVER_PROFILES = {};

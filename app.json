@@ -8,6 +8,11 @@
     "scheme": "voexi",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/images/icon.png"
+    },
     "splash": {
       "image": "./assets/images/icon.png",
       "resizeMode": "contain",
@@ -17,11 +22,13 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSMicrophoneUsageDescription": "VOEXI needs access to your microphone for recording voice messages and AI speech recognition.",
-        "NSCameraUsageDescription": "VOEXI needs access to your camera to record videos and take photos for your productions.",
+        "NSCameraUsageDescription": "VOEXI needs access to your camera for AI Filters and Background replacement.",
         "NSPhotoLibraryUsageDescription": "VOEXI needs access to your photo library to let you upload videos and photos.",
         "NSPhotoLibraryAddUsageDescription": "VOEXI needs permission to save remixed videos to your photo library.",
-        "NSSpeechRecognitionUsageDescription": "Allow VOEXI to use speech recognition for AI voice commands."
-      }
+        "NSSpeechRecognitionUsageDescription": "Allow VOEXI to use speech recognition for AI voice commands.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "bundleIdentifier": "com.voexi.app"
     },
     "android": {
       "adaptiveIcon": {
@@ -35,8 +42,7 @@
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
-      "package": "com.voexi.app",
-      "graphicsApi": "opengl"
+      "package": "com.voexi.app"
     },
     "plugins": [
       [

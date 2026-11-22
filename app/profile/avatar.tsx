@@ -44,6 +44,7 @@ export default function VOEXIAvatarStudioScreen() {
   const [profile, setProfile] = useState<any>(null);
   const [gender, setGender] = useState<'Male' | 'Female'>('Male');
   const [selectedAvatarId, setSelectedAvatarId] = useState<string>('Male');
+  const [selectedModelUri, setSelectedModelUri] = useState<string>(FALLBACK_MALE_GLB);
   const [selectedVaultItemId, setSelectedVaultItemId] = useState<string>('');
   const [activeTab, setActiveTab] = useState<TabType>('Avatar');
 
@@ -230,6 +231,7 @@ export default function VOEXIAvatarStudioScreen() {
     setActiveSelectedItem(newGender === 'Female' ? (femMatch || { name: 'Female 3D Avatar', diamond_price: 590, original_price: 1180, gender_target: 'FEMALE' }) : (maleMatch || { name: 'Male 3D Avatar', diamond_price: 590, original_price: 1180, gender_target: 'MALE' }));
 
     const newUri = getGenderModelUri(newGender);
+    setSelectedModelUri(newUri);
     engineRef.current?.setGender(newGender.toLowerCase() as 'male' | 'female', newUri);
   };
 
@@ -562,13 +564,13 @@ export default function VOEXIAvatarStudioScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Auth session lost. Please log in.');
 
-      const currentModelUri = getGenderModelUri(gender);
+      const modelUriToSave = selectedModelUri || getGenderModelUri(gender);
 
       await supabase
         .from('profiles')
         .update({
           gender,
-          avatar_url: currentModelUri || profile?.avatar_url,
+          avatar_url: modelUriToSave,
           updated_at: new Date()
         })
         .eq('id', user.id);
@@ -577,8 +579,8 @@ export default function VOEXIAvatarStudioScreen() {
         .from('avatars')
         .upsert({
           user_id: user.id,
-          avatar_url: currentModelUri,
-          avatar_source: 'preset',
+          avatar_url: modelUriToSave,
+          avatar_source: selectedModelUri && selectedModelUri.includes('custom') ? 'custom' : 'preset',
           top_color: topColor,
           bottom_color: bottomColor,
           metadata: {
@@ -598,7 +600,7 @@ export default function VOEXIAvatarStudioScreen() {
           updated_at: new Date()
         });
 
-      Alert.alert("VAULT SYNCED ✨", "Your VOEXI 3D Avatar profile & full outfit wardrobe have been saved.");
+      Alert.alert("VAULT SYNCED ✨", "Your VOEXI 3D Avatar & Model have been saved and broadcasted to the 3D Universe!");
     } catch (err: any) {
       Alert.alert("SAVE ERROR", err.message || "Failed to save avatar.");
     } finally {

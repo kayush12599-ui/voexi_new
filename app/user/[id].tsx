@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -14,7 +14,9 @@ import {
   Share,
   Modal,
   Pressable,
-  StatusBar
+  StatusBar,
+  Platform,
+  PanResponder
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -29,6 +31,7 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import SubscribeButton from '../../components/SubscribeButton';
 import { useLanguage } from '../../hooks/useLanguage';
 import VXIdentityCard from '../../components/VXIdentityCard';
+import UserProfile3DSwipeCard from '../../components/avatar/UserProfile3DSwipeCard';
 import { getThemeById } from '../../constants/cardThemes';
 import { useFollow } from '../../lib/social';
 import { NeuralAuditModal } from '../../components/moderation/NeuralAuditModal';
@@ -192,6 +195,26 @@ export default function UserProfileScreen() {
     totalViews: 0,
   });
 
+  const isNavigating3D = useRef(false);
+  const profileSwipePanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && gestureState.dx < -40;
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dx < -40 && !isNavigating3D.current) {
+          isNavigating3D.current = true;
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+          router.push({ pathname: '/profile/3d-stage', params: { id: (id as string) || profile?.id } });
+          setTimeout(() => {
+            isNavigating3D.current = false;
+          }, 600);
+        }
+      },
+    })
+  ).current;
+
   useEffect(() => {
     checkUser();
     if (id) {
@@ -314,6 +337,12 @@ export default function UserProfileScreen() {
 
       const targetUserId = targetProfile?.id || rawId;
 
+      const { data: avatarRecord } = await supabase
+        .from('avatars')
+        .select('*')
+        .eq('user_id', targetUserId)
+        .maybeSingle();
+
       // Server 2 Fallback for target profile card settings
       let server2Profile: any = null;
       try {
@@ -340,6 +369,7 @@ export default function UserProfileScreen() {
           channel_name: displayName,
           username: rawProf.username || 'broadcaster',
           avatar_url: rawProf.avatar_url && rawProf.avatar_url.startsWith('http') ? rawProf.avatar_url : fallbackAvatar,
+          user3dAvatar: avatarRecord,
           card_background_uri: cardBg,
           card_bg_url: cardBg,
           custom_bg_uri: cardBg,
@@ -490,7 +520,7 @@ export default function UserProfileScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, isLight && { backgroundColor: '#fff' }]}>
+    <SafeAreaView style={[styles.container, isLight && { backgroundColor: '#fff' }]} {...profileSwipePanResponder.panHandlers}>
       <StatusBar barStyle={isLight ? "dark-content" : "light-content"} />
       <LinearGradient
         colors={[theme.colors[0], '#000']}
@@ -511,7 +541,13 @@ export default function UserProfileScreen() {
             <MaterialCommunityIcons name="check-decagram" size={14} color={VOEXITheme.colors.primary} style={{marginLeft: 5}} />
           )}
         </View>
-        <View style={{ flexDirection: 'row', gap: 15 }}>
+        <View style={{ flexDirection: 'row', gap: 15, alignItems: 'center' }}>
+           <TouchableOpacity onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+              router.push({ pathname: '/profile/3d-stage', params: { id: id || profile?.id } });
+           }}>
+              <Ionicons name="cube" size={22} color="#00F2FE" />
+           </TouchableOpacity>
            <TouchableOpacity onPress={() => {
               setAuditTarget({ id: id as string, userId: id as string, type: 'profile' });
               setAuditModalVisible(true);
@@ -526,38 +562,49 @@ export default function UserProfileScreen() {
 
       <FlatList
         data={profile?.privacy_mode === 'private' && connectionStatus !== 'accepted' && currentUserId !== id ? [] : filteredPosts}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item, index) => item.id || `item_${index}`}
         numColumns={2}
+        scrollEnabled={true}
         onRefresh={onRefresh}
         refreshing={refreshing}
         contentContainerStyle={styles.scrollContent}
         columnWrapperStyle={profile?.privacy_mode === 'private' && connectionStatus !== 'accepted' && currentUserId !== id ? null : styles.columnWrapper}
         ListHeaderComponent={
           <View style={styles.headerComponent}>
-            <VXIdentityCard profile={profile} themeId={profile?.card_theme} isDirty={isDirty} dirtLevel={dirtLevel} />
+            <UserProfile3DSwipeCard profile={profile} isDirty={isDirty} dirtLevel={dirtLevel} />
 
-            <View style={[styles.neuralInfoBar, isLight && { opacity: 0.8 }]}>
-               <View style={[styles.infoPill, isLight && { backgroundColor: '#F5F5F5', borderColor: '#EEE' }]}>
-                  <View style={[styles.statusDot, { backgroundColor: VOEXITheme.colors.primary }]} />
-                  <Text style={[styles.infoPillText, isLight && { color: '#666' }]}>{profile?.neural_status || 'PSYCH-LINK ACTIVE'}</Text>
-               </View>
-               <View style={[styles.infoPill, { flex: 1 }, isLight && { backgroundColor: '#F5F5F5', borderColor: '#EEE' }]}>
-                  <Ionicons name="flash" size={12} color="#FFD700" />
-                  <View style={{ flex: 1, marginHorizontal: 8 }}>
-                     <View style={[styles.xpTrack, isLight && { backgroundColor: '#DDD' }]}>
-                        <View style={[styles.xpFill, { width: `${Math.min(((profile?.xp || 0) % 1000) / 10, 100)}%` }]} />
-                     </View>
-                  </View>
-                  <Text style={[styles.infoPillText, isLight && { color: '#666' }]}>LVL {profile?.level || 1}</Text>
+            <View style={[styles.statsBar, isLight && { backgroundColor: '#F5F5F5', borderColor: '#EEE' }]}>
+               <TouchableOpacity
+                 style={styles.statItem}
+                 onLongPress={() => {
+                   if (currentUserId === id) fetchSubscribersList();
+                   else Alert.alert("Privacy", "Only the broadcaster can view the full subscriber list.");
+                 }}
+                 delayLongPress={500}
+               >
+                 <Text style={[styles.statVal, isLight && { color: '#000' }]}>{subsCount}</Text>
+                 <Text style={[styles.statLab, isLight && { color: '#999' }]}>Subscribers</Text>
+               </TouchableOpacity>
+               <View style={[styles.statDivider, isLight && { backgroundColor: '#EEE' }]} />
+               <TouchableOpacity
+                 style={styles.statItem}
+                 onLongPress={() => {
+                   if (currentUserId === id || profile?.friends_visible) fetchFriendsList();
+                   else Alert.alert("Privacy", "This broadcaster has restricted access to their friends list.");
+                 }}
+                 delayLongPress={500}
+               >
+                    <Text style={[styles.statVal, isLight && { color: '#000' }]}>{counts.friends}</Text>
+                    <Text style={[styles.statLab, isLight && { color: '#999' }]}>Friends</Text>
+               </TouchableOpacity>
+               <View style={[styles.statDivider, isLight && { backgroundColor: '#EEE' }]} />
+               <View style={styles.statItem}>
+                    <Text style={[styles.statVal, isLight && { color: '#000' }]}>{counts.totalViews}</Text>
+                    <Text style={[styles.statLab, isLight && { color: '#999' }]}>Total Views</Text>
                </View>
             </View>
 
-            {isDirty && (
-              <View style={styles.abandonedBadge}>
-                <Ionicons name="warning" size={14} color="#FFD700" />
-                <Text style={styles.abandonedText}>STATION UNDER DECAY: AGENT INACTIVE FOR {dirtLevel} DAYS</Text>
-              </View>
-            )}
+
 
             <View style={styles.actionRow}>
                 {currentUserId === id ? (
@@ -594,39 +641,32 @@ export default function UserProfileScreen() {
                 )}
             </View>
 
-            <View style={[styles.statsBar, isLight && { backgroundColor: '#F5F5F5', borderColor: '#EEE' }]}>
-               <TouchableOpacity
-                 style={styles.statItem}
-                 onLongPress={() => {
-                   if (currentUserId === id) fetchSubscribersList();
-                   else Alert.alert("Privacy", "Only the broadcaster can view the full subscriber list.");
-                 }}
-                 delayLongPress={500}
-               >
-                 <Text style={[styles.statVal, isLight && { color: '#000' }]}>{subsCount}</Text><Text style={[styles.statLab, isLight && { color: '#999' }]}>Subscribers</Text>
-               </TouchableOpacity>
-               <View style={[styles.statDivider, isLight && { backgroundColor: '#EEE' }]} />
-               <TouchableOpacity
-                 style={styles.statItem}
-                 onLongPress={() => {
-                   if (currentUserId === id || profile?.friends_visible) fetchFriendsList();
-                   else Alert.alert("Privacy", "This broadcaster has restricted access to their friends list.");
-                 }}
-                 delayLongPress={500}
-               >
-                    <Text style={[styles.statVal, isLight && { color: '#000' }]}>{counts.friends}</Text>
-                    <Text style={[styles.statLab, isLight && { color: '#999' }]}>Friends</Text>
-               </TouchableOpacity>
-                 <View style={[styles.statDivider, isLight && { backgroundColor: '#EEE' }]} />
-                 <View style={styles.statItem}>
-                    <Text style={[styles.statVal, isLight && { color: '#000' }]}>{counts.totalViews}</Text>
-                    <Text style={[styles.statLab, isLight && { color: '#999' }]}>Total Views</Text>
-                 </View>
-            </View>
-
             <View style={styles.bioBox}>
                <Text style={[styles.bioText, isLight && { color: '#666' }]}>{profile?.bio || "Digital Creator on VOEXI Platform."}</Text>
             </View>
+
+            <View style={[styles.neuralInfoBar, isLight && { opacity: 0.8 }]}>
+               <View style={[styles.infoPill, isLight && { backgroundColor: '#F5F5F5', borderColor: '#EEE' }]}>
+                  <View style={[styles.statusDot, { backgroundColor: VOEXITheme.colors.primary }]} />
+                  <Text style={[styles.infoPillText, isLight && { color: '#666' }]}>{profile?.neural_status || 'PSYCH-LINK ACTIVE'}</Text>
+               </View>
+               <View style={[styles.infoPill, { flex: 1 }, isLight && { backgroundColor: '#F5F5F5', borderColor: '#EEE' }]}>
+                  <Ionicons name="flash" size={12} color="#FFD700" />
+                  <View style={{ flex: 1, marginHorizontal: 8 }}>
+                     <View style={[styles.xpTrack, isLight && { backgroundColor: '#DDD' }]}>
+                        <View style={[styles.xpFill, { width: `${Math.min(((profile?.xp || 0) % 1000) / 10, 100)}%` }]} />
+                     </View>
+                  </View>
+                  <Text style={[styles.infoPillText, isLight && { color: '#666' }]}>LVL {profile?.level || 1}</Text>
+               </View>
+            </View>
+
+            {isDirty && (
+              <View style={styles.abandonedBadge}>
+                <Ionicons name="warning" size={14} color="#FFD700" />
+                <Text style={styles.abandonedText}>STATION UNDER DECAY: AGENT INACTIVE FOR {dirtLevel} DAYS</Text>
+              </View>
+            )}
 
             {/* FRIENDS LIST FOR OTHERS (Human Psychology: Shows social proof) */}
             {currentUserId !== id && (
@@ -917,8 +957,16 @@ export default function UserProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
-  centerLoader: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' },
+  container: {
+    ...(Platform.OS === 'web' ? { height: '100vh', overflowY: 'scroll' } : { flex: 1 }),
+    backgroundColor: '#000'
+  },
+  centerLoader: {
+    ...(Platform.OS === 'web' ? { height: '100vh' } : { flex: 1 }),
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#000'
+  },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20 },
   headerTitle: { color: '#fff', fontSize: 14, fontWeight: '900', letterSpacing: 2 },
   verifiedDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#00ff00', marginLeft: 6, shadowColor: '#00ff00', shadowOffset: {width: 0, height: 0}, shadowOpacity: 1, shadowRadius: 5, elevation: 5 },
@@ -1093,4 +1141,5 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
   },
+
 });

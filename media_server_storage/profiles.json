@@ -1,0 +1,29 @@
+{
+  "5a7f870d-19dd-410f-b9e9-2096771ef0d6": {
+    "id": "5a7f870d-19dd-410f-b9e9-2096771ef0d6",
+    "card_background_uri": "http://192.168.31.39:8080/VX_1793021434486_743.png",
+    "card_theme": "custom",
+    "updated_at": "2026-10-26T13:30:36.867Z",
+    "custom_logo_url": "http://192.168.31.39:8080/VX_1793021435054_353.jpg",
+    "blend_theme_glow": false,
+    "card_bg_url": "http://192.168.31.39:8080/VX_1793021434486_743.png",
+    "custom_bg_uri": "http://192.168.31.39:8080/VX_1793021434486_743.png",
+    "logo_url": "http://192.168.31.39:8080/VX_1793021435054_353.jpg",
+    "extracted_primary_color": "#ed1d7a",
+    "extracted_accent_color": "#ed1d7a"
+  },
+  "450ff5c7-b975-4212-9514-033c980d8444": {
+    "id": "450ff5c7-b975-4212-9514-033c980d8444",
+    "card_background_uri": "http://192.168.31.39:8080/VX_1793032931791_751.png",
+    "card_theme": "custom",
+    "extracted_primary_color": "#2eed1d",
+    "extracted_accent_color": "#2eed1d",
+    "updated_at": "2026-10-26T16:42:14.947Z",
+    "custom_logo_url": "http://192.168.31.39:8080/VX_1793032932400_769.png",
+    "blend_theme_glow": false,
+    "card_bg_url": "http://192.168.31.39:8080/VX_1793032931791_751.png",
+    "custom_bg_uri": "http://192.168.31.39:8080/VX_1793032931791_751.png",
+    "logo_url": "http://192.168.31.39:8080/VX_1793032932400_769.png",
+    "avatar_url": "http://192.168.31.39:8080/VX_1793032932400_769.png"
+  }
+}

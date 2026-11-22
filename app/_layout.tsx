@@ -1,3 +1,4 @@
+import '../lib/react19WebPolyfill';
 import { DarkTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -25,6 +26,7 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 if (Platform.OS === 'web' && typeof document !== 'undefined') {
   try {
     const iconFontStyles = `
+      html, body, #root { height: 100%; width: 100%; margin: 0; padding: 0; overflow-x: hidden; background-color: #06060E; }
       @font-face { font-family: 'Ionicons'; src: url('https://cdn.jsdelivr.net/npm/@expo/vector-icons@14.0.0/build/vendor/react-native-vector-icons/Fonts/Ionicons.ttf') format('truetype'); font-display: swap; }
       @font-face { font-family: 'MaterialCommunityIcons'; src: url('https://cdn.jsdelivr.net/npm/@expo/vector-icons@14.0.0/build/vendor/react-native-vector-icons/Fonts/MaterialCommunityIcons.ttf') format('truetype'); font-display: swap; }
       @font-face { font-family: 'MaterialIcons'; src: url('https://cdn.jsdelivr.net/npm/@expo/vector-icons@14.0.0/build/vendor/react-native-vector-icons/Fonts/MaterialIcons.ttf') format('truetype'); font-display: swap; }
@@ -78,79 +80,62 @@ try {
 
 export default function RootLayout() {
   const [session, setSession] = useState<Session | null>(null);
-  const [initialized, setInitialized] = useState(false);
+  const [initialized, setInitialized] = useState(true);
   const segments = useSegments();
   const router = useRouter();
 
   useEffect(() => {
     if (Platform.OS !== 'web') {
       try {
-        activateKeepAwakeAsync().catch(() => {});
+        activateKeepAwakeAsync('voexi_awake').catch(() => {});
       } catch (e) {}
     }
     return () => {
       if (Platform.OS !== 'web') {
         try {
-          deactivateKeepAwake().catch(() => {});
+          deactivateKeepAwake('voexi_awake').catch(() => {});
         } catch (e) {}
       }
     };
   }, []);
 
   useEffect(() => {
-    // 3000ms Safety Timeout for Slow 3G / Remote Tunnel Connections
+    // 300ms Instant Safety Timeout (Prevents blank screen on refresh)
     const safetyTimer = setTimeout(() => {
       setInitialized(true);
       if (Platform.OS !== 'web') SplashScreen.hideAsync().catch(() => {});
-    }, 3000);
+    }, 300);
 
     const initializeAuth = async () => {
       try {
-        // 1. FAST LOCAL SESSION RESTORE (0ms Network Lag - Instant Offline & Slow 3G Access)
-        const localSessionStr = await AsyncStorage.getItem('sb-iafmgtldihnhcvrfveev-auth-token');
-        if (localSessionStr) {
-          try {
+        initAds();
+        initI18n().catch(() => {});
+
+        // 1. INSTANT LOCAL SESSION RESTORE (0ms delay on refresh)
+        try {
+          const localSessionStr = await AsyncStorage.getItem('sb-iafmgtldihnhcvrfveev-auth-token');
+          if (localSessionStr) {
             const parsed = JSON.parse(localSessionStr);
             const sess = parsed?.currentSession || (parsed?.access_token ? parsed : null);
-            if (sess) {
-              setSession(sess as Session);
-            }
-          } catch (e) {}
-        }
+            if (sess) setSession(sess as Session);
+          }
+        } catch (e) {}
 
-        initAds();
-        await initI18n();
+        // Unblock UI immediately
+        setInitialized(true);
+        if (Platform.OS !== 'web') SplashScreen.hideAsync().catch(() => {});
 
-        // 2. BACKGROUND SERVER SESSION SYNC WITH HIGH-SECURITY SHIELD
-        const { data, error } = await supabase.auth.getSession();
-        if (error || !data?.session) {
-          // If server session is missing or invalid, purge local token
-          setSession(null);
-          await AsyncStorage.removeItem('sb-iafmgtldihnhcvrfveev-auth-token').catch(() => {});
-        } else if (data?.session) {
+        // 2. Background Supabase Auth Sync
+        const { data } = await supabase.auth.getSession();
+        if (data?.session) {
+          setSession(data.session);
           if (data.session.user?.email_confirmed_at) {
-            // Check if profile is marked as deleted/erased
-            const { data: profile } = await supabase
-              .from('profiles')
-              .select('is_deleted')
-              .eq('id', data.session.user.id)
-              .maybeSingle();
-
-            if (profile?.is_deleted) {
-              await supabase.auth.signOut().catch(() => {});
-              await AsyncStorage.removeItem('sb-iafmgtldihnhcvrfveev-auth-token').catch(() => {});
-              setSession(null);
-            } else {
-              setSession(data.session);
-              AuthService.ensureNeuralIdentity(
-                data.session.user.id,
-                data.session.user.email || '',
-                data.session.user.user_metadata
-              ).catch(() => {});
-              checkDailyLogin(data.session.user.id);
-            }
-          } else {
-            setSession(data.session);
+            AuthService.ensureNeuralIdentity(
+              data.session.user.id,
+              data.session.user.email || '',
+              data.session.user.user_metadata
+            ).catch(() => {});
+            checkDailyLogin(data.session.user.id);
           }
         }
       } catch (err: any) {
@@ -187,26 +172,33 @@ export default function RootLayout() {
   useEffect(() => {
     if (!initialized) return;
 
-    const segs = segments as string[];
-    const inAuthGroup = segs[0] === '(auth)';
-    const inSignup = inAuthGroup && (segs[1] === 'signup' || segs.length === 1);
-    const inForgotPassword = segs[1] === 'forgot-password' || segs[0] === 'reset-password';
-    const inIntro = segs[0] === 'intro';
+    const segs = (segments || []) as string[];
+    const firstSeg = segs[0] || '';
 
-    // 🛡️ SECURITY GUARD: Require email to be confirmed before auto-redirecting to /(tabs)
-    const isEmailVerified = !!session?.user?.email_confirmed_at;
+    const inAuthGroup = firstSeg === '(auth)';
+    const inSignup = inAuthGroup && segs[1] === 'signup';
+    const inForgotPassword = segs[1] === 'forgot-password' || firstSeg === 'reset-password';
+    const inIntro = firstSeg === 'intro';
+    const isAtRoot = segs.length === 0 || firstSeg === '' || firstSeg === 'index';
 
-    if (session && isEmailVerified) {
-      // Do NOT auto-redirect away from signup page while user is setting password and completing signup!
-      if ((inAuthGroup || inIntro) && !inForgotPassword && !inSignup) {
-        setTimeout(() => { try { router.replace('/(tabs)'); } catch (e) {} }, 100);
-      }
-    } else {
-      // Unverified user or no session trying to access non-auth/non-intro routes
-      if (!inAuthGroup && !inIntro && segs.length > 0 && segs[0] !== '') {
-        setTimeout(() => { try { router.replace('/(auth)/login'); } catch (e) {} }, 100);
-      }
-    }
+    // 🛡️ SECURITY GUARD: Single authoritative navigation check with navigation readiness delay
+    const isUserAuthenticated = !!session?.user;
+
+    const timer = setTimeout(() => {
+      try {
+        if (session && isUserAuthenticated) {
+          if ((inAuthGroup || inIntro || isAtRoot) && !inForgotPassword && !inSignup) {
+            router.replace('/(tabs)');
+          }
+        } else {
+          if (!inAuthGroup && !inIntro) {
+            router.replace('/(auth)/login');
+          }
+        }
+      } catch (e) {}
+    }, 60);
+
+    return () => clearTimeout(timer);
   }, [session, initialized, segments]);
 
   return (
@@ -216,7 +208,7 @@ export default function RootLayout() {
           <DiamondThemeProvider>
             <GestureSettingsProvider>
               <VoiceSettingsProvider>
-                <RootLayoutInner initialized={initialized} />
+                <RootLayoutInner />
               </VoiceSettingsProvider>
             </GestureSettingsProvider>
           </DiamondThemeProvider>
@@ -226,16 +218,7 @@ export default function RootLayout() {
   );
 }
 
-function RootLayoutInner({ initialized }: { initialized: boolean }) {
-  if (!initialized) {
-    return (
-      <View style={{ flex: 1, height: '100%', backgroundColor: '#000000', justifyContent: 'center', alignItems: 'center', gap: 15 }}>
-        <ActivityIndicator size="large" color={VOEXITheme.colors.primary} />
-        <Text style={{ color: '#666', fontSize: 10, fontWeight: '900', letterSpacing: 2 }}>SYNCHRONIZING NEURAL LINK...</Text>
-      </View>
-    );
-  }
-
+function RootLayoutInner() {
   return (
     <ThemeProvider value={DarkTheme}>
       <View style={{ flex: 1, height: '100%', backgroundColor: '#000000' }}>
@@ -246,5 +229,3 @@ function RootLayoutInner({ initialized }: { initialized: boolean }) {
   );
 }
 
-module.exports = RootLayout;
-module.exports.default = RootLayout;

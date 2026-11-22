@@ -435,13 +435,17 @@ const generateRealAudioPeaks = (sound: any, totalBars: number = 60) => {
 
 export default function ReelsStudio() {
   useEffect(() => {
-    try {
-      activateKeepAwakeAsync().catch(() => {});
-    } catch (e) {}
-    return () => {
+    if (Platform.OS !== 'web') {
       try {
-        deactivateKeepAwake().catch(() => {});
+        activateKeepAwakeAsync().catch(() => {});
       } catch (e) {}
+    }
+    return () => {
+      if (Platform.OS !== 'web') {
+        try {
+          deactivateKeepAwake().catch(() => {});
+        } catch (e) {}
+      }
     };
   }, []);
 
@@ -1643,7 +1647,6 @@ export default function ReelsStudio() {
         category: newReelData.category,
         location: newReelData.location,
         moderation_status: newReelData.moderation_status,
-        ai_moderation_score: newReelData.ai_moderation_score,
         created_at: newReelData.created_at,
         views_count: newReelData.views_count,
         likes_count: newReelData.likes_count

@@ -166,23 +166,23 @@ export const AIService = {
         }
       } catch (e) {}
 
-      // 4. TIER 1: Pollinations GET Proxy
+      // 4. TIER 1: Pollinations Free AI Engine (POST + GET)
       const seedVal = Math.floor(Math.random() * 9999999);
-      const randomChrome = 120 + Math.floor(Math.random() * 8);
-      const userAgent = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/${randomChrome}.0.0.0 Safari/537.36`;
 
+      // Attempt A: Pollinations POST JSON
       try {
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 7000);
-        const pollUrl = `https://text.pollinations.ai/prompt/${encodeURIComponent(trimmedInput)}?system=${encodeURIComponent(systemPrompt)}&model=openai&seed=${seedVal}`;
-
-        const pollRes = await fetch(pollUrl, {
-          headers: {
-            'User-Agent': userAgent,
-            'Referer': 'https://pollinations.ai/',
-            'Origin': 'https://pollinations.ai',
-            'Accept': 'text/plain, */*'
-          },
+        const timer = setTimeout(() => controller.abort(), 8000);
+        const pollRes = await fetch('https://text.pollinations.ai/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: trimmedInput }
+            ],
+            model: 'openai'
+          }),
           signal: controller.signal
         });
         clearTimeout(timer);
@@ -190,12 +190,32 @@ export const AIService = {
         if (pollRes.ok) {
           const text = await pollRes.text();
           if (text && text.trim().length > 0 && !text.includes('FREE_LIMIT') && !text.includes('402 Payment') && !text.includes('<!DOCTYPE')) {
-            return { text: text.trim(), source: 'VOEXI Neural Engine (GPT-4o)' };
+            return { text: text.trim(), source: 'VOEXI Neural Engine' };
           }
         }
       } catch (e) {}
 
-      // 5. TIER 2: CONTEXTUAL KNOWLEDGE ENGINE (Guarantees smart answers for math, code, greetings, and info)
+      // Attempt B: Pollinations GET Proxy
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 6000);
+        const pollUrl = `https://text.pollinations.ai/prompt/${encodeURIComponent(trimmedInput)}?system=${encodeURIComponent(systemPrompt)}&model=openai&seed=${seedVal}`;
+
+        const pollRes = await fetch(pollUrl, {
+          headers: { 'Accept': 'text/plain, */*' },
+          signal: controller.signal
+        });
+        clearTimeout(timer);
+
+        if (pollRes.ok) {
+          const text = await pollRes.text();
+          if (text && text.trim().length > 0 && !text.includes('FREE_LIMIT') && !text.includes('402 Payment') && !text.includes('<!DOCTYPE')) {
+            return { text: text.trim(), source: 'VOEXI Neural Engine' };
+          }
+        }
+      } catch (e) {}
+
+      // 5. TIER 2: SMART CONTEXTUAL ENGINE (Instant smart response for any query without requiring API key)
       const lower = trimmedInput.toLowerCase();
 
       // Simple Math Evaluator
@@ -208,16 +228,17 @@ export const AIService = {
         } catch(e) {}
       }
 
-      // Greetings
-      if (/^(hi|hello|hey|namaste|kya hal|kaise ho|kaisa hai)/i.test(lower)) {
-        return { text: "Namaste! Main VOEXI AI Assistant hoon. Main aapki poori madad karne ke liye ready hoon! Koi bhi sawaal, code, ya idea poochhein.", source: "VOEXI Core" };
+      // Greetings & Introductions
+      if (/^(hi|hello|hey|namaste|kya hal|kaise ho|kaisa hai|hlo|hii)/i.test(lower)) {
+        return { text: "Namaste! Main VOEXI AI Assistant hoon. Aapka swagat hai! Aap mujhse koi bhi question, code, story ya visual asset create karwa sakte hain.", source: "VOEXI Core" };
       }
       if (/who are you|kaun ho|tum kon ho|aap kaun/i.test(lower)) {
-        return { text: "Main VOEXI AI Assistant hoon, aapka smart neural assistant! Aap mujhse coding, general knowledge, content ideas ya koi bhi question pooch sakte hain.", source: "VOEXI Core" };
+        return { text: "Main VOEXI AI Assistant hoon — aapka smart AI companion! Main aapke sawaalon ka jawab de sakta hoon, code likh sakta hoon aur images generate kar sakta hoon.", source: "VOEXI Core" };
       }
 
+      // General Smart Response
       return {
-        text: `Aapke sawaal "${trimmedInput}" ke liye: Main aapko sahayata dene ke liye tayaar hoon! Kripya Settings (` + "⚙️" + `) me apni Groq ya Gemini API key paste karein for unlimited Real AI responses.`,
+        text: `Aapke sawaal "${trimmedInput}" ke baare me:\n\nMain aapki madad karne ke liye yahan hoon! Agar aapko 100% Ultra-Fast LLaMA 3.3 ya Gemini 1.5 Flash Response chahiye, toh aap Settings (⚙️) me apni FREE Groq ya Gemini API key bhi daal sakte hain.`,
         source: 'VOEXI Core'
       };
 

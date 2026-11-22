@@ -64,10 +64,152 @@ export default function AdminDashboardScreen() {
   const [selectedThumbFile, setSelectedThumbFile] = useState<any>(null);
   const [isUploading, setIsUploading] = useState(false);
 
+  // 3-Layer System Config State
+  const [cfgLayer, setCfgLayer] = useState<number>(1);
+  const [cfgLoading, setCfgLoading] = useState<boolean>(false);
+  const [cfgHeaderLabel, setCfgHeaderLabel] = useState<string>('ELITE CORE LOG');
+  const [cfgAppName, setCfgAppName] = useState<string>('VOEXI');
+  const [cfgStatusBadge, setCfgStatusBadge] = useState<string>('PRIVATE BETA • NEURAL LINK ACTIVE');
+  const [cfgAboutDesc, setCfgAboutDesc] = useState<string>('VOEXI is a next-generation AI-powered social platform designed for creators, communities, and meaningful digital experiences. Built with innovation, privacy, and performance at its core, VOEXI offers a fresh social experience focused on creativity, intelligent features, and authentic connections.');
+  const [cfgVersion, setCfgVersion] = useState<string>('1.0.0');
+  const [cfgStatus, setCfgStatus] = useState<string>('COMING SOON');
+  const [cfgDeveloper, setCfgDeveloper] = useState<string>('VOEXI TEAM');
+  const [cfgOrigin, setCfgOrigin] = useState<string>('CORE PROTOCOL');
+
+  // Layer 2 Guidelines
+  const [cfgGTitle, setCfgGTitle] = useState<string>('COMMUNITY GUIDELINES & PROTOCOL');
+  const [cfgGDate, setCfgGDate] = useState<string>('November 2026');
+  const [cfgGRule1, setCfgGRule1] = useState<string>('1. Respectful Content Sharing: Treat all creators, users, and communities with dignity. Harassment, hate speech, and explicit abuse are strictly prohibited.');
+  const [cfgGRule2, setCfgGRule2] = useState<string>('2. AI Content Integrity: All AI-generated audio, video, and neural responses must follow transparency standards.');
+  const [cfgGRule3, setCfgGRule3] = useState<string>('3. Platform Security Shield: Unauthorized attempts to tamper with Neural Links or Server Storage will result in account suspension.');
+  const [cfgGRule4, setCfgGRule4] = useState<string>('4. Creator Economy Rules: VX Coins, Diamond rewards, and earnings transfers must follow verified transaction guidelines.');
+
+  // Layer 3 Privacy
+  const [cfgPLastUpdated, setCfgPLastUpdated] = useState<string>('November 2026');
+  const [cfgP1Title, setCfgP1Title] = useState<string>('1. Data Collection & Usage');
+  const [cfgP1Body, setCfgP1Body] = useState<string>('VOEXI collects minimal data required for a premium experience, including username, email, and media uploaded by you. We do not sell your personal data to third parties.');
+  const [cfgP2Title, setCfgP2Title] = useState<string>('2. AI Disclosure');
+  const [cfgP2Body, setCfgP2Body] = useState<string>('Our platform uses Artificial Intelligence (AI) to enhance video quality and process premium audio. By using VOEXI, you acknowledge that some content or responses may be AI-generated.');
+  const [cfgP3Title, setCfgP3Title] = useState<string>('3. Media Permissions');
+  const [cfgP3Body, setCfgP3Body] = useState<string>('We request access to your Camera and Microphone only when you choose to record or upload a production. Your media is securely stored on our encrypted servers.');
+  const [cfgP4Title, setCfgP4Title] = useState<string>('4. Monetization & Coins');
+  const [cfgP4Body, setCfgP4Body] = useState<string>('Data related to your earnings and VX Coins is encrypted. We use this information only to process your rewards and withdrawals.');
+  const [cfgP5Title, setCfgP5Title] = useState<string>('5. Contact Us');
+  const [cfgP5Body, setCfgP5Body] = useState<string>('If you have any questions regarding your privacy, please contact our support team at support@voexi.com.');
+
   useEffect(() => {
     checkServerAndFetchData();
     checkAdminRoleAndFetchData();
+    loadAppConfigFromServer();
   }, []);
+
+  const loadAppConfigFromServer = async () => {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 1200);
+      const res = await fetch(`http://${SERVER_IP}:8080/app-info.json`, { signal: controller.signal }).then(r => r.json()).catch(() => null);
+      clearTimeout(timer);
+      if (res) {
+        const l1 = res.layer1_branding || res || {};
+        const l2 = res.layer2_guidelines || {};
+        const l3 = res.layer3_privacy || {};
+
+        if (l1.header_label) setCfgHeaderLabel(l1.header_label);
+        if (l1.app_name) setCfgAppName(l1.app_name);
+        if (l1.status_badge) setCfgStatusBadge(l1.status_badge);
+        if (l1.about_desc) setCfgAboutDesc(l1.about_desc);
+        if (l1.version) setCfgVersion(l1.version);
+        if (l1.status) setCfgStatus(l1.status);
+        if (l1.developer) setCfgDeveloper(l1.developer);
+        if (l1.origin) setCfgOrigin(l1.origin);
+
+        if (l2.title) setCfgGTitle(l2.title);
+        if (l2.last_updated) setCfgGDate(l2.last_updated);
+        if (l2.rule_1) setCfgGRule1(l2.rule_1);
+        if (l2.rule_2) setCfgGRule2(l2.rule_2);
+        if (l2.rule_3) setCfgGRule3(l2.rule_3);
+        if (l2.rule_4) setCfgGRule4(l2.rule_4);
+
+        if (l3.last_updated) setCfgPLastUpdated(l3.last_updated);
+        if (l3.section_1_title) setCfgP1Title(l3.section_1_title);
+        if (l3.section_1_body) setCfgP1Body(l3.section_1_body);
+        if (l3.section_2_title) setCfgP2Title(l3.section_2_title);
+        if (l3.section_2_body) setCfgP2Body(l3.section_2_body);
+        if (l3.section_3_title) setCfgP3Title(l3.section_3_title);
+        if (l3.section_3_body) setCfgP3Body(l3.section_3_body);
+        if (l3.section_4_title) setCfgP4Title(l3.section_4_title);
+        if (l3.section_4_body) setCfgP4Body(l3.section_4_body);
+        if (l3.section_5_title) setCfgP5Title(l3.section_5_title);
+        if (l3.section_5_body) setCfgP5Body(l3.section_5_body);
+      }
+    } catch (e) {}
+  };
+
+  const saveAppConfigToServer = async () => {
+    setCfgLoading(true);
+    try {
+      const payload = {
+        layer1_branding: {
+          header_label: cfgHeaderLabel,
+          app_name: cfgAppName,
+          status_badge: cfgStatusBadge,
+          about_title: 'ABOUT VOEXI',
+          about_desc: cfgAboutDesc,
+          version: cfgVersion,
+          status: cfgStatus,
+          developer: cfgDeveloper,
+          origin: cfgOrigin,
+          footer_thankyou: "Thank you for being part of VOEXI. Together we're building the future of social connection.",
+          copyright: "© 2026 VOEXI. ALL RIGHTS RESERVED."
+        },
+        layer2_guidelines: {
+          title: cfgGTitle,
+          last_updated: cfgGDate,
+          rule_1: cfgGRule1,
+          rule_2: cfgGRule2,
+          rule_3: cfgGRule3,
+          rule_4: cfgGRule4
+        },
+        layer3_privacy: {
+          last_updated: cfgPLastUpdated,
+          section_1_title: cfgP1Title,
+          section_1_body: cfgP1Body,
+          section_2_title: cfgP2Title,
+          section_2_body: cfgP2Body,
+          section_3_title: cfgP3Title,
+          section_3_body: cfgP3Body,
+          section_4_title: cfgP4Title,
+          section_4_body: cfgP4Body,
+          section_5_title: cfgP5Title,
+          section_5_body: cfgP5Body
+        },
+        scanning_locations: [
+          "D:\\vibroxe_media_storage",
+          "C:\\vibroxe_new\\media_server_storage",
+          "C:\\vibroxe_new\\assets\\images",
+          "D:\\"
+        ]
+      };
+
+      const res = await fetch(`http://${SERVER_IP}:8080/api/app-info`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {}); } catch (e) {}
+        Alert.alert("SAVED TO SERVER 📜", "3-Layer System Config & Policies updated live on Server 2!");
+      } else {
+        throw new Error(data.error || 'Failed to save');
+      }
+    } catch (e: any) {
+      Alert.alert("SERVER ERROR", e?.message || "Could not save to Server 2 on port 8080");
+    } finally {
+      setCfgLoading(false);
+    }
+  };
 
   const checkAdminRoleAndFetchData = async () => {
     try {
@@ -808,6 +950,122 @@ export default function AdminDashboardScreen() {
               </View>
             ))
           )}
+        </View>
+
+        {/* 📜 3-LAYER SYSTEM BRANDING, GUIDELINES & PRIVACY CONTROL */}
+        <View style={[styles.sectionCard, { borderColor: '#A855F7' }]}>
+          <Text style={[styles.sectionTitle, { color: '#C084FC' }]}>
+            📜 3-LAYER SYSTEM BRANDING, GUIDELINES & PRIVACY CONTROL
+          </Text>
+
+          <View style={{ flexDirection: 'row', gap: 6, marginVertical: 12 }}>
+            <TouchableOpacity
+              style={[styles.filterBtn, cfgLayer === 1 && { backgroundColor: '#A855F7' }]}
+              onPress={() => setCfgLayer(1)}
+            >
+              <Text style={[styles.filterBtnText, cfgLayer === 1 && { color: '#FFF' }]}>LAYER 1: BRANDING</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.filterBtn, cfgLayer === 2 && { backgroundColor: '#A855F7' }]}
+              onPress={() => setCfgLayer(2)}
+            >
+              <Text style={[styles.filterBtnText, cfgLayer === 2 && { color: '#FFF' }]}>LAYER 2: GUIDELINES</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.filterBtn, cfgLayer === 3 && { backgroundColor: '#A855F7' }]}
+              onPress={() => setCfgLayer(3)}
+            >
+              <Text style={[styles.filterBtnText, cfgLayer === 3 && { color: '#FFF' }]}>LAYER 3: PRIVACY (5)</Text>
+            </TouchableOpacity>
+          </View>
+
+          {cfgLayer === 1 && (
+            <View style={{ gap: 10 }}>
+              <Text style={styles.fieldLabel}>HEADER LABEL</Text>
+              <TextInput style={styles.textInput} value={cfgHeaderLabel} onChangeText={setCfgHeaderLabel} placeholderTextColor="#555" />
+
+              <Text style={styles.fieldLabel}>APP NAME</Text>
+              <TextInput style={styles.textInput} value={cfgAppName} onChangeText={setCfgAppName} placeholderTextColor="#555" />
+
+              <Text style={styles.fieldLabel}>STATUS BADGE</Text>
+              <TextInput style={styles.textInput} value={cfgStatusBadge} onChangeText={setCfgStatusBadge} placeholderTextColor="#555" />
+
+              <Text style={styles.fieldLabel}>ABOUT MANIFESTO DESCRIPTION</Text>
+              <TextInput style={[styles.textInput, { height: 80 }]} multiline value={cfgAboutDesc} onChangeText={setCfgAboutDesc} placeholderTextColor="#555" />
+
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.fieldLabel}>VERSION</Text>
+                  <TextInput style={styles.textInput} value={cfgVersion} onChangeText={setCfgVersion} placeholderTextColor="#555" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.fieldLabel}>STATUS</Text>
+                  <TextInput style={styles.textInput} value={cfgStatus} onChangeText={setCfgStatus} placeholderTextColor="#555" />
+                </View>
+              </View>
+            </View>
+          )}
+
+          {cfgLayer === 2 && (
+            <View style={{ gap: 10 }}>
+              <Text style={styles.fieldLabel}>GUIDELINES TITLE</Text>
+              <TextInput style={styles.textInput} value={cfgGTitle} onChangeText={setCfgGTitle} placeholderTextColor="#555" />
+
+              <Text style={styles.fieldLabel}>LAST UPDATED DATE</Text>
+              <TextInput style={styles.textInput} value={cfgGDate} onChangeText={setCfgGDate} placeholderTextColor="#555" />
+
+              <Text style={styles.fieldLabel}>RULE 1: CONTENT SAFETY</Text>
+              <TextInput style={[styles.textInput, { height: 60 }]} multiline value={cfgGRule1} onChangeText={setCfgGRule1} placeholderTextColor="#555" />
+
+              <Text style={styles.fieldLabel}>RULE 2: RESPECT & HARASSMENT</Text>
+              <TextInput style={[styles.textInput, { height: 60 }]} multiline value={cfgGRule2} onChangeText={setCfgGRule2} placeholderTextColor="#555" />
+
+              <Text style={styles.fieldLabel}>RULE 3: IP & SECURITY SHIELD</Text>
+              <TextInput style={[styles.textInput, { height: 60 }]} multiline value={cfgGRule3} onChangeText={setCfgGRule3} placeholderTextColor="#555" />
+
+              <Text style={styles.fieldLabel}>RULE 4: CREATOR ECONOMY RULES</Text>
+              <TextInput style={[styles.textInput, { height: 60 }]} multiline value={cfgGRule4} onChangeText={setCfgGRule4} placeholderTextColor="#555" />
+            </View>
+          )}
+
+          {cfgLayer === 3 && (
+            <View style={{ gap: 10 }}>
+              <Text style={styles.fieldLabel}>PRIVACY POLICY LAST UPDATED DATE</Text>
+              <TextInput style={styles.textInput} value={cfgPLastUpdated} onChangeText={setCfgPLastUpdated} placeholderTextColor="#555" />
+
+              <Text style={styles.fieldLabel}>SECTION 1: DATA COLLECTION & USAGE</Text>
+              <TextInput style={styles.textInput} value={cfgP1Title} onChangeText={setCfgP1Title} placeholderTextColor="#555" />
+              <TextInput style={[styles.textInput, { height: 60 }]} multiline value={cfgP1Body} onChangeText={setCfgP1Body} placeholderTextColor="#555" />
+
+              <Text style={styles.fieldLabel}>SECTION 2: AI DISCLOSURE</Text>
+              <TextInput style={styles.textInput} value={cfgP2Title} onChangeText={setCfgP2Title} placeholderTextColor="#555" />
+              <TextInput style={[styles.textInput, { height: 60 }]} multiline value={cfgP2Body} onChangeText={setCfgP2Body} placeholderTextColor="#555" />
+
+              <Text style={styles.fieldLabel}>SECTION 3: MEDIA PERMISSIONS</Text>
+              <TextInput style={styles.textInput} value={cfgP3Title} onChangeText={setCfgP3Title} placeholderTextColor="#555" />
+              <TextInput style={[styles.textInput, { height: 60 }]} multiline value={cfgP3Body} onChangeText={setCfgP3Body} placeholderTextColor="#555" />
+
+              <Text style={styles.fieldLabel}>SECTION 4: MONETIZATION & COINS</Text>
+              <TextInput style={styles.textInput} value={cfgP4Title} onChangeText={setCfgP4Title} placeholderTextColor="#555" />
+              <TextInput style={[styles.textInput, { height: 60 }]} multiline value={cfgP4Body} onChangeText={setCfgP4Body} placeholderTextColor="#555" />
+
+              <Text style={styles.fieldLabel}>SECTION 5: CONTACT US</Text>
+              <TextInput style={styles.textInput} value={cfgP5Title} onChangeText={setCfgP5Title} placeholderTextColor="#555" />
+              <TextInput style={[styles.textInput, { height: 60 }]} multiline value={cfgP5Body} onChangeText={setCfgP5Body} placeholderTextColor="#555" />
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={[styles.uploadSubmitBtn, { backgroundColor: '#A855F7', marginTop: 15 }]}
+            onPress={saveAppConfigToServer}
+            disabled={cfgLoading}
+          >
+            {cfgLoading ? (
+              <ActivityIndicator color="#FFF" />
+            ) : (
+              <Text style={styles.uploadSubmitText}>💾 SAVE 3-LAYER SYSTEM CONFIG ON SERVER</Text>
+            )}
+          </TouchableOpacity>
         </View>
 
         {/* SERVER DIAGNOSTICS CARD */}
