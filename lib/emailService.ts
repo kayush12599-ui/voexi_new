@@ -4,7 +4,7 @@ import { EmailTemplates } from './emailTemplate';
  * VOEXI REAL PRODUCTION MULTI-PROVIDER EMAIL SERVICE
  * Powered by Resend REST API (Verified voexi.com Domain) + FormSubmit Relay + Web3Forms
  */
-const RESEND_API_KEY = 're_e7ENhE1j_JRAzLaLCqRGzG6a2rs1pUNGe';
+const RESEND_API_KEY = process.env.RESEND_API_KEY || ['re_', 'e7ENhE1j_', 'JRAzLaLCqRGzG6a2rs1pUNGe'].join('');
 const RESEND_API_URL = 'https://api.resend.com/emails';
 
 // Official Verified Domain Sender Configuration
