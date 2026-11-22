@@ -25,7 +25,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: 4. Setup Android SDK
+      - name: 4. Setup Android SDK 34
         uses: android-actions/setup-android@v3
         with:
           api-level: 34
@@ -35,14 +35,19 @@ jobs:
         run: |
           npm install --legacy-peer-deps
 
-      - name: 6. Install EAS CLI & Build APK
+      - name: 6. Prebuild Android Native Code
         run: |
-          npm install -g eas-cli
-          npx eas-cli build --platform android --profile preview --local --non-interactive
+          npx expo prebuild --platform android --clean
 
-      - name: 7. Upload Android APK Artifact
+      - name: 7. Build APK with Gradle
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: 8. Upload Android APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: VOEXI-Android-APK
-          path: "*.apk"
+          path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error

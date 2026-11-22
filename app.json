@@ -58,8 +58,8 @@
           "android": {
             "usesCleartextTraffic": true,
             "kotlinVersion": "2.0.21",
-            "targetSdkVersion": 36,
-            "compileSdkVersion": 36,
+            "targetSdkVersion": 34,
+            "compileSdkVersion": 34,
             "extraMavenRepos": [
               "https://www.jitpack.io",
               "https://maven.google.com"
