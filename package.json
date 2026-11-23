@@ -3,6 +3,7 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
+    "eas-build-pre-install": "npm config set legacy-peer-deps true",
     "start": "npx expo start",
     "scan": "npx expo start",
     "postinstall": "node scripts/generate_missing_assets.js && node scripts/patch-metro.js",
